@@ -113,15 +113,16 @@ impl Scanner {
         let text = self.source[self.start..self.current].to_string();
         let token_type = match text.as_str() {
             "and" => TokenType::Symbol,
-            "else" => TokenType::Symbol,
             "false" => TokenType::Boolean,
-            "if" => TokenType::Symbol,
+            "cond" => TokenType::Symbol,
             "nil" => TokenType::Nil,
             "or" => TokenType::Symbol,
             "print" => TokenType::Symbol,
             "true" => TokenType::Boolean,
             "let" => TokenType::Symbol,
-            "def" => TokenType::Symbol,
+            "fn" => TokenType::Symbol,
+            "else" => TokenType::Symbol,
+            "if" => TokenType::Symbol,
             _ => TokenType::Identifier,
         };
 
