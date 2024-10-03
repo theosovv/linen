@@ -3,6 +3,8 @@ use std::io::Read;
 
 use compiler::error::LinenError;
 use compiler::lexer::scanner::Scanner;
+use compiler::parser::ast_node::AstNode;
+use compiler::parser::Parser;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
@@ -13,14 +15,15 @@ fn run_file(path: String) {
     let _ = run(contents, path);
 }
 
-fn run(source: String, place: String) -> Result<(), LinenError> {
+fn run(source: String, place: String) -> Result<Vec<AstNode>, LinenError> {
     let mut scanner = Scanner::new(source, place);
     let tokens = scanner.scan_tokens()?;
 
-    for token in tokens {
-        println!("{:?}", token);
-    }
-    Ok(())
+    let mut parser = Parser::new(tokens);
+
+    let statements = parser.parse()?;
+
+    Ok(statements)
 }
 
 fn run_prompt() -> Result<(), String> {
@@ -40,7 +43,18 @@ fn run_prompt() -> Result<(), String> {
                 }
 
                 let _ = rl.add_history_entry(line.as_str());
-                let _ = run(line, "<REPL>".to_string());
+                let ret = run(line, "<REPL>".to_string());
+
+                match ret {
+                    Ok(statements) => {
+                        for statement in statements {
+                            println!("{:?}", statement);
+                        }
+                    }
+                    Err(err) => {
+                        err.report();
+                    }
+                }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
