@@ -1,2 +1,3 @@
 # linen
-Lisp-like Frontend Language
+
+Programming language for music

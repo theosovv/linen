@@ -7,29 +7,29 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'compiler'",
+      "name": "Debug executable 'linen'",
       "cargo": {
-        "args": ["build", "--bin=compiler", "--package=compiler"],
+        "args": ["build", "--bin=linen", "--package=linen"],
         "filter": {
-          "name": "compiler",
+          "name": "linen",
           "kind": "bin"
         }
       },
-      "args": [],
+      "args": ["test.ln"],
       "cwd": "${workspaceFolder}"
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'compiler'",
+      "name": "Debug unit tests in executable 'linen'",
       "cargo": {
-        "args": ["test", "--no-run", "--bin=compiler", "--package=compiler"],
+        "args": ["test", "--no-run", "--bin=linen", "--package=linen"],
         "filter": {
-          "name": "compiler",
+          "name": "linen",
           "kind": "bin"
         }
       },
-      "args": [],
+      "args": ["test.ln"],
       "cwd": "${workspaceFolder}"
     }
   ]
