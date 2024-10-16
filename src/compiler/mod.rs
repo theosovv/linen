@@ -4,7 +4,7 @@ use parser::{Parser, Precedence};
 use scanner::Scanner;
 use token::{Token, TokenType};
 
-use crate::vm::chunk::{debug::disassemble_chunk, Chunk, OpCode};
+use crate::vm::chunk::{debug::disassemble_chunk, value::Val, Chunk, OpCode};
 
 pub mod parser;
 pub mod scanner;
@@ -50,21 +50,31 @@ impl<'a> Compiler<'a> {
         !self.parser.had_error
     }
 
+    fn literal(&mut self) {
+        match self.parser.previous.clone().unwrap().token_type {
+            TokenType::False => self.emit_byte(OpCode::OpFalse as u8),
+            TokenType::True => self.emit_byte(OpCode::OpTrue as u8),
+            TokenType::Nil => self.emit_byte(OpCode::OpNil as u8),
+            _ => panic!("Invalid literal"),
+        }
+    }
+
     fn number(&mut self) {
         let value = self.parser.previous.clone().unwrap().start
             [0..self.parser.previous.clone().unwrap().length]
             .parse::<f64>()
             .unwrap();
-        self.emit_constant(value);
+
+        self.emit_constant(Val::number(value));
     }
 
-    fn emit_constant(&mut self, value: f64) {
+    fn emit_constant(&mut self, value: Val) {
         let constant = self.make_constant(value);
         self.emit_bytes(OpCode::OpConstant as u8, constant);
         self.parser.previous.clone().unwrap();
     }
 
-    fn make_constant(&mut self, value: f64) -> u8 {
+    fn make_constant(&mut self, value: Val) -> u8 {
         let constant = self.current_chunk.as_mut().unwrap().add_constant(value);
 
         if constant > 255 {
@@ -136,13 +146,11 @@ impl<'a> Compiler<'a> {
     fn unary_expression(&mut self) {
         let operator_type = self.parser.previous.clone().unwrap().token_type;
 
-        self.expression();
-
         self.parse_precedence(Precedence::Unary);
 
         match operator_type {
             TokenType::Minus => self.emit_byte(OpCode::OpNegate as u8),
-            TokenType::Bang => self.emit_byte(OpCode::OpSubtract as u8),
+            TokenType::Bang => self.emit_byte(OpCode::OpNot as u8),
             _ => panic!("Invalid unary operator"),
         }
     }
@@ -154,6 +162,12 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(rule.precedence.clone());
 
         match operator_type {
+            TokenType::BangEqual => self.emit_bytes(OpCode::OpEqual as u8, OpCode::OpNot as u8),
+            TokenType::EqualEqual => self.emit_byte(OpCode::OpEqual as u8),
+            TokenType::Greater => self.emit_byte(OpCode::OpGreater as u8),
+            TokenType::GreaterEqual => self.emit_bytes(OpCode::OpLess as u8, OpCode::OpNot as u8),
+            TokenType::Less => self.emit_byte(OpCode::OpLess as u8),
+            TokenType::LessEqual => self.emit_bytes(OpCode::OpGreater as u8, OpCode::OpNot as u8),
             TokenType::Minus => self.emit_byte(OpCode::OpSubtract as u8),
             TokenType::Plus => self.emit_byte(OpCode::OpAdd as u8),
             TokenType::Star => self.emit_byte(OpCode::OpMultiply as u8),

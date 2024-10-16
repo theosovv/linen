@@ -99,7 +99,7 @@ impl<'a> Scanner<'a> {
             'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
             'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
             'f' => {
-                if self.current.len() > 1 {
+                if self.start.chars().count() > 1 {
                     match self.start.chars().nth(1).unwrap() {
                         'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                         'o' => self.check_keyword(2, 1, "r", TokenType::For),
@@ -110,7 +110,7 @@ impl<'a> Scanner<'a> {
                 }
             }
             'd' => {
-                if self.current.len() > 1 {
+                if self.start.chars().count() > 1 {
                     match self.start.chars().nth(1).unwrap() {
                         'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                         'o' => self.check_keyword(2, 1, "r", TokenType::For),
@@ -128,7 +128,7 @@ impl<'a> Scanner<'a> {
             'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
             's' => self.check_keyword(1, 4, "uper", TokenType::Super),
             't' => {
-                if self.current.len() > 1 {
+                if self.start.chars().count() > 1 {
                     match self.start.chars().nth(1).unwrap() {
                         'h' => self.check_keyword(2, 2, "is", TokenType::This),
                         'r' => self.check_keyword(2, 2, "ue", TokenType::True),
@@ -255,7 +255,7 @@ impl<'a> Scanner<'a> {
     fn make_token(&mut self, token_type: TokenType) -> Token<'a> {
         Token::new(
             token_type,
-            self.start.len() - self.current.len(),
+            self.start.chars().count() - self.current.chars().count(),
             self.line,
             self.start,
         )

@@ -60,18 +60,18 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     );
 
     rules.insert(
-        TokenType::Minus,
+        TokenType::Plus,
         ParseRule {
-            prefix: Some(Compiler::unary_expression),
+            prefix: None,
             infix: Some(Compiler::binary_expression),
             precedence: Precedence::Term,
         },
     );
 
     rules.insert(
-        TokenType::Plus,
+        TokenType::Minus,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::unary_expression),
             infix: Some(Compiler::binary_expression),
             precedence: Precedence::Term,
         },
@@ -107,7 +107,7 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     rules.insert(
         TokenType::Bang,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::unary_expression),
             infix: None,
             precedence: Precedence::None,
         },
@@ -117,8 +117,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::BangEqual,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::binary_expression),
+            precedence: Precedence::Equality,
         },
     );
 
@@ -135,8 +135,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::EqualEqual,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::binary_expression),
+            precedence: Precedence::Equality,
         },
     );
 
@@ -144,8 +144,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::Greater,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::binary_expression),
+            precedence: Precedence::Comparison,
         },
     );
 
@@ -153,8 +153,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::GreaterEqual,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::binary_expression),
+            precedence: Precedence::Comparison,
         },
     );
 
@@ -162,8 +162,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::Less,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::binary_expression),
+            precedence: Precedence::Comparison,
         },
     );
 
@@ -171,8 +171,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::LessEqual,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::binary_expression),
+            precedence: Precedence::Comparison,
         },
     );
 
@@ -233,7 +233,7 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     rules.insert(
         TokenType::False,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::literal),
             infix: None,
             precedence: Precedence::None,
         },
@@ -269,7 +269,7 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     rules.insert(
         TokenType::Nil,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::literal),
             infix: None,
             precedence: Precedence::None,
         },
@@ -323,7 +323,7 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     rules.insert(
         TokenType::True,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::literal),
             infix: None,
             precedence: Precedence::None,
         },

@@ -30,10 +30,17 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
             println!(" '{}'", chunk.constants.values[constant as usize]);
             offset + 2
         }
+        OpCode::OpNil => simple_instruction("OP_NIL", offset),
+        OpCode::OpTrue => simple_instruction("OP_TRUE", offset),
+        OpCode::OpFalse => simple_instruction("OP_FALSE", offset),
+        OpCode::OpEqual => simple_instruction("OP_EQUAL", offset),
+        OpCode::OpGreater => simple_instruction("OP_GREATER", offset),
+        OpCode::OpLess => simple_instruction("OP_LESS", offset),
         OpCode::OpAdd => simple_instruction("OP_ADD", offset),
         OpCode::OpSubtract => simple_instruction("OP_SUBTRACT", offset),
         OpCode::OpMultiply => simple_instruction("OP_MULTIPLY", offset),
         OpCode::OpDivide => simple_instruction("OP_DIVIDE", offset),
+        OpCode::OpNot => simple_instruction("OP_NOT", offset),
         _ => {
             println!("Unknown opcode {}", instruction);
             offset + 1
