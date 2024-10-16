@@ -1,6 +1,8 @@
 use chunk::{debug::disassemble_instruction, Chunk, OpCode};
 use std::env;
 
+use crate::compiler::Compiler;
+
 pub mod chunk;
 
 macro_rules! binary_op {
@@ -18,6 +20,7 @@ pub struct VM {
     stack_top: usize,
 }
 
+#[derive(PartialEq)]
 pub enum InterpretResult {
     Ok,
     CompileError,
@@ -45,12 +48,30 @@ impl VM {
         self.stack_top = 0;
     }
 
-    pub fn interpret(&mut self, chunk: &chunk::Chunk) -> InterpretResult {
+    pub fn interpret(&mut self, source: String) -> InterpretResult {
+        let mut compiler = Compiler::new(&source);
+        let mut chunk = Chunk::new();
+
+        if !compiler.compile(&mut chunk) {
+            return InterpretResult::CompileError;
+        }
+
         self.chunk = Some(chunk.clone());
         self.ip = self.chunk.as_ref().unwrap().code.clone();
 
-        self.run()
+        let result = self.run();
+
+        chunk.free_chunk();
+
+        result
     }
+
+    // pub fn interpret(&mut self, chunk: &chunk::Chunk) -> InterpretResult {
+    //     self.chunk = Some(chunk.clone());
+    //     self.ip = self.chunk.as_ref().unwrap().code.clone();
+
+    //     self.run()
+    // }
 
     fn run(&mut self) -> InterpretResult {
         loop {
@@ -62,6 +83,11 @@ impl VM {
                 println!();
                 disassemble_instruction(&self.chunk.clone().unwrap(), self.stack_top);
             }
+
+            if self.ip.is_empty() {
+                return InterpretResult::Ok;
+            }
+
             let instruction = self.read_byte();
 
             match OpCode::from(instruction) {
@@ -96,7 +122,12 @@ impl VM {
 
     fn read_byte(&mut self) -> u8 {
         let byte = self.ip[0];
-        self.ip = self.ip[1..].to_vec();
+        if self.ip.len() == 1 {
+            self.ip = Vec::new();
+        } else {
+            self.ip = self.ip[1..].to_vec();
+        }
+
         byte
     }
 
