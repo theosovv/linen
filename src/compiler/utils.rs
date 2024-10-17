@@ -179,7 +179,7 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     rules.insert(
         TokenType::Identifier,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::variable),
             infix: None,
             precedence: Precedence::None,
         },
@@ -188,7 +188,7 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
     rules.insert(
         TokenType::String,
         ParseRule {
-            prefix: None,
+            prefix: Some(Compiler::string),
             infix: None,
             precedence: Precedence::None,
         },

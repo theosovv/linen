@@ -2,6 +2,8 @@ use value::{Val, Value};
 
 pub mod debug;
 pub mod memory;
+pub mod object;
+pub mod table;
 pub mod value;
 
 pub enum OpCode {
@@ -19,6 +21,11 @@ pub enum OpCode {
     OpNot,
     OpNegate,
     OpReturn,
+    OpPrint,
+    OpPop,
+    OpDefineGlobal,
+    OpGetGlobal,
+    OpSetGlobal,
 }
 
 impl From<u8> for OpCode {
@@ -38,6 +45,11 @@ impl From<u8> for OpCode {
             11 => OpCode::OpNot,
             12 => OpCode::OpNegate,
             13 => OpCode::OpReturn,
+            14 => OpCode::OpPrint,
+            15 => OpCode::OpPop,
+            16 => OpCode::OpDefineGlobal,
+            17 => OpCode::OpGetGlobal,
+            18 => OpCode::OpSetGlobal,
             _ => panic!("Unknown opcode {}", value),
         }
     }
@@ -71,7 +83,7 @@ impl Chunk {
     }
 
     pub fn add_constant(&mut self, value: Val) -> usize {
-        self.constants.write(value.as_number());
+        self.constants.write(value);
         self.constants.values.len() - 1
     }
 

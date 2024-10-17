@@ -30,6 +30,26 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
             println!(" '{}'", chunk.constants.values[constant as usize]);
             offset + 2
         }
+        OpCode::OpDefineGlobal => {
+            let constant = chunk.code[offset + 1];
+            print!("{:16} {:4}", "OP_DEFINE_GLOBAL", constant);
+            println!(" '{}'", chunk.constants.values[constant as usize]);
+            offset + 2
+        }
+        OpCode::OpGetGlobal => {
+            let constant = chunk.code[offset + 1];
+            print!("{:16} {:4}", "OP_GET_GLOBAL", constant);
+            println!(" '{}'", chunk.constants.values[constant as usize]);
+            offset + 2
+        }
+        OpCode::OpSetGlobal => {
+            let constant = chunk.code[offset + 1];
+            print!("{:16} {:4}", "OP_SET_GLOBAL", constant);
+            println!(" '{}'", chunk.constants.values[constant as usize]);
+            offset + 2
+        }
+        OpCode::OpPop => simple_instruction("OP_POP", offset),
+        OpCode::OpPrint => simple_instruction("OP_PRINT", offset),
         OpCode::OpNil => simple_instruction("OP_NIL", offset),
         OpCode::OpTrue => simple_instruction("OP_TRUE", offset),
         OpCode::OpFalse => simple_instruction("OP_FALSE", offset),
