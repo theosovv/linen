@@ -155,6 +155,16 @@ impl VM {
                         return InterpretResult::RuntimeError;
                     }
                 }
+                OpCode::OpGetLocal => {
+                    let slot = self.read_byte();
+                    let value = self.stack[slot as usize].clone();
+                    self.push(value);
+                }
+                OpCode::OpSetLocal => {
+                    let slot = self.read_byte();
+                    let value = self.peek(0).clone();
+                    self.stack[slot as usize] = value;
+                }
                 OpCode::OpEqual => {
                     let b = self.pop();
                     let a = self.pop();
@@ -206,7 +216,6 @@ impl VM {
             }
         }
     }
-
     fn read_string(&mut self) -> StringObject {
         let constant = self.read_constant();
 

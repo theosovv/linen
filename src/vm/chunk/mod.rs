@@ -26,6 +26,8 @@ pub enum OpCode {
     OpDefineGlobal,
     OpGetGlobal,
     OpSetGlobal,
+    OpGetLocal,
+    OpSetLocal,
 }
 
 impl From<u8> for OpCode {
@@ -50,6 +52,8 @@ impl From<u8> for OpCode {
             16 => OpCode::OpDefineGlobal,
             17 => OpCode::OpGetGlobal,
             18 => OpCode::OpSetGlobal,
+            19 => OpCode::OpGetLocal,
+            20 => OpCode::OpSetLocal,
             _ => panic!("Unknown opcode {}", value),
         }
     }
