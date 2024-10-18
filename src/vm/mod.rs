@@ -1,11 +1,9 @@
 use chunk::{
-    debug::disassemble_instruction,
     object::{Obj, Object, ObjectType, StringObject},
     table::Table,
     value::{Val, ValueType},
     Chunk, OpCode,
 };
-use std::env;
 
 use crate::compiler::Compiler;
 
@@ -60,7 +58,7 @@ macro_rules! binary_op {
 
 pub struct VM {
     chunk: Option<Chunk>,
-    ip: Vec<u8>,
+    ip: usize,
     stack: Vec<Val>,
     stack_top: usize,
     objects: Option<Vec<Object>>,
@@ -85,7 +83,7 @@ impl VM {
     pub fn new() -> Self {
         VM {
             chunk: None,
-            ip: Vec::new(),
+            ip: 0,
             stack: Vec::new(),
             stack_top: 0,
             objects: None,
@@ -108,7 +106,7 @@ impl VM {
         }
 
         self.chunk = Some(chunk.clone());
-        self.ip = self.chunk.as_ref().unwrap().code.clone();
+        self.ip = 0;
 
         let result = self.run();
 
@@ -119,7 +117,7 @@ impl VM {
 
     fn run(&mut self) -> InterpretResult {
         loop {
-            if self.ip.is_empty() {
+            if self.ip >= self.chunk.as_ref().unwrap().code.len() {
                 return InterpretResult::Ok;
             }
 
@@ -173,6 +171,12 @@ impl VM {
                 OpCode::OpGreater => {
                     binary_op!(self, >, boolean);
                 }
+                OpCode::OpGreaterEqual => {
+                    binary_op!(self, >=, boolean);
+                }
+                OpCode::OpLessEqual => {
+                    binary_op!(self, <=, boolean);
+                }
                 OpCode::OpLess => {
                     binary_op!(self, <, boolean);
                 }
@@ -198,6 +202,20 @@ impl VM {
                     self.globals.set_table(name, self.peek(0));
                     self.pop();
                 }
+                OpCode::OpJumpFalse => {
+                    let offset = self.read_short();
+                    if !self.peek(0).is_truthy() {
+                        self.ip += offset as usize;
+                    }
+                }
+                OpCode::OpLoop => {
+                    let offset = self.read_short();
+                    self.ip -= offset as usize;
+                }
+                OpCode::OpJump => {
+                    let offset = self.read_short();
+                    self.ip += offset as usize;
+                }
                 OpCode::OpNegate => {
                     let val = self.peek(0);
 
@@ -212,7 +230,9 @@ impl VM {
                 OpCode::OpPrint => {
                     println!("{}", self.pop());
                 }
-                _ => panic!("Unknown opcode {}", instruction),
+                OpCode::OpReturn => {
+                    return InterpretResult::Ok;
+                }
             }
         }
     }
@@ -232,7 +252,6 @@ impl VM {
             ValueType::Boolean(_) => Val::boolean(a.as_bool() == b.as_bool()),
             ValueType::Object(value) => match value.object_type {
                 ObjectType::String(_) => Val::boolean(a.as_string() == b.as_string()),
-                _ => panic!("Unknown object type"),
             },
             ValueType::Nil => Val::boolean(true),
         }
@@ -248,14 +267,15 @@ impl VM {
     }
 
     fn read_byte(&mut self) -> u8 {
-        let byte = self.ip[0];
-        if self.ip.len() == 1 {
-            self.ip = Vec::new();
-        } else {
-            self.ip = self.ip[1..].to_vec();
-        }
-
+        let byte = self.chunk.as_ref().unwrap().code[self.ip];
+        self.ip += 1;
         byte
+    }
+
+    fn read_short(&mut self) -> u16 {
+        let high = self.read_byte() as u16;
+        let low = self.read_byte() as u16;
+        (high << 8) | low
     }
 
     fn push(&mut self, value: Val) {

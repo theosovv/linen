@@ -1,33 +1,37 @@
 use value::{Val, Value};
 
 pub mod debug;
-pub mod memory;
 pub mod object;
 pub mod table;
 pub mod value;
 
 pub enum OpCode {
-    OpConstant,
-    OpNil,
-    OpTrue,
-    OpFalse,
-    OpEqual,
-    OpGreater,
-    OpLess,
-    OpAdd,
-    OpSubtract,
-    OpMultiply,
-    OpDivide,
-    OpNot,
-    OpNegate,
-    OpReturn,
-    OpPrint,
-    OpPop,
-    OpDefineGlobal,
-    OpGetGlobal,
-    OpSetGlobal,
-    OpGetLocal,
-    OpSetLocal,
+    OpConstant = 0,
+    OpNil = 1,
+    OpTrue = 2,
+    OpFalse = 3,
+    OpEqual = 4,
+    OpGreater = 5,
+    OpLess = 6,
+    OpAdd = 7,
+    OpSubtract = 8,
+    OpMultiply = 9,
+    OpDivide = 10,
+    OpNot = 11,
+    OpNegate = 12,
+    OpReturn = 13,
+    OpPrint = 14,
+    OpPop = 15,
+    OpDefineGlobal = 16,
+    OpGetGlobal = 17,
+    OpSetGlobal = 18,
+    OpGetLocal = 19,
+    OpSetLocal = 20,
+    OpJumpFalse = 21,
+    OpJump = 22,
+    OpLoop = 23,
+    OpGreaterEqual = 24,
+    OpLessEqual = 25,
 }
 
 impl From<u8> for OpCode {
@@ -54,6 +58,11 @@ impl From<u8> for OpCode {
             18 => OpCode::OpSetGlobal,
             19 => OpCode::OpGetLocal,
             20 => OpCode::OpSetLocal,
+            21 => OpCode::OpJumpFalse,
+            22 => OpCode::OpJump,
+            23 => OpCode::OpLoop,
+            24 => OpCode::OpGreaterEqual,
+            25 => OpCode::OpLessEqual,
             _ => panic!("Unknown opcode {}", value),
         }
     }

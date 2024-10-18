@@ -207,8 +207,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::And,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::and),
+            precedence: Precedence::And,
         },
     );
 
@@ -279,8 +279,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::Or,
         ParseRule {
             prefix: None,
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::or),
+            precedence: Precedence::Or,
         },
     );
 

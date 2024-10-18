@@ -76,6 +76,17 @@ impl Val {
         }
     }
 
+    pub fn is_falsey(&self) -> bool {
+        match self.value_type.clone() {
+            ValueType::Boolean(value) => !value,
+            ValueType::Nil => true,
+            ValueType::Number(value) => value == 0.0,
+            ValueType::Object(value) => match value.object_type {
+                ObjectType::String(value) => value == "nil",
+            },
+        }
+    }
+
     pub fn number(value: f64) -> Self {
         Val {
             value_type: ValueType::Number(value),

@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, collections::HashMap};
+use std::collections::HashMap;
 
 use parser::{Parser, Precedence};
 use scanner::Scanner;
@@ -6,7 +6,7 @@ use token::{Token, TokenType};
 
 use crate::vm::chunk::{
     debug::disassemble_chunk,
-    object::{Obj, ObjectType, StringObject},
+    object::{Obj, StringObject},
     value::Val,
     Chunk, OpCode,
 };
@@ -27,7 +27,7 @@ pub struct ParseRule<'a> {
 pub struct Compiler<'a> {
     scanner: Scanner<'a>,
     parser: Parser<'a>,
-    current_chunk: Option<Chunk>,
+    current_chunk: Option<&'a mut Chunk>,
     rules: HashMap<TokenType, ParseRule<'a>>,
     locals: Vec<Local<'a>>,
     scope_depth: usize,
@@ -53,8 +53,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn compile(&mut self, chunk: &mut Chunk) -> bool {
-        self.current_chunk = Some(chunk.clone());
+    pub fn compile(&mut self, chunk: &'a mut Chunk) -> bool {
+        self.current_chunk = Some(chunk);
         self.advance();
 
         while !self.match_token(TokenType::EOF) {
@@ -66,8 +66,6 @@ impl<'a> Compiler<'a> {
         }
 
         self.end_compiler();
-
-        *chunk = self.current_chunk.clone().unwrap();
 
         !self.parser.had_error
     }
@@ -219,6 +217,12 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.match_token(TokenType::Print) {
             self.print_statement();
+        } else if self.match_token(TokenType::For) {
+            self.for_statement();
+        } else if self.match_token(TokenType::If) {
+            self.if_statement();
+        } else if self.match_token(TokenType::While) {
+            self.while_statement();
         } else if self.match_token(TokenType::LeftBrace) {
             self.begin_scope();
             self.block();
@@ -226,6 +230,123 @@ impl<'a> Compiler<'a> {
         } else {
             self.expression_statement();
         }
+    }
+
+    fn for_statement(&mut self) {
+        self.begin_scope();
+
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.");
+
+        if self.match_token(TokenType::Semicolon) {
+            // No initializer
+        } else if self.match_token(TokenType::Var) {
+            self.var_declaration();
+        } else {
+            self.expression_statement();
+        }
+
+        let mut loop_start = self.current_chunk.as_ref().unwrap().code.len();
+
+        let mut exit_jump = None;
+        if !self.match_token(TokenType::Semicolon) {
+            self.expression();
+            self.consume(TokenType::Semicolon, "Expect ';' after loop condition.");
+
+            exit_jump = Some(self.emit_jump(OpCode::OpJumpFalse as u8));
+            self.emit_byte(OpCode::OpPop as u8);
+        }
+
+        if !self.match_token(TokenType::RightParen) {
+            let body_jump = self.emit_jump(OpCode::OpJump as u8);
+            let increment_start = self.current_chunk.as_ref().unwrap().code.len();
+            self.expression();
+            self.emit_byte(OpCode::OpPop as u8);
+
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
+
+        self.statement();
+
+        self.emit_loop(loop_start);
+
+        if let Some(exit_jump) = exit_jump {
+            self.patch_jump(exit_jump);
+            self.emit_byte(OpCode::OpPop as u8);
+        }
+
+        self.end_scope();
+    }
+
+    fn while_statement(&mut self) {
+        let loop_start = self.current_chunk.as_ref().unwrap().code.len();
+        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
+
+        let exit_jump = self.emit_jump(OpCode::OpJumpFalse as u8);
+        self.emit_byte(OpCode::OpPop as u8);
+        self.statement();
+
+        self.emit_loop(loop_start);
+        self.patch_jump(exit_jump);
+        self.emit_byte(OpCode::OpPop as u8);
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.emit_byte(OpCode::OpLoop as u8);
+
+        let offset = self.current_chunk.as_ref().unwrap().code.len() - loop_start + 2;
+        if offset > u16::MAX as usize {
+            self.error_at_current("Loop body too large.");
+        }
+
+        self.emit_byte(((offset >> 8) & 0xff) as u8);
+        self.emit_byte((offset & 0xff) as u8);
+    }
+
+    fn if_statement(&mut self) {
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
+
+        let then_jump = self.emit_jump(OpCode::OpJumpFalse as u8);
+        self.emit_byte(OpCode::OpPop as u8);
+        self.statement();
+
+        let else_jump = self.emit_jump(OpCode::OpJump as u8);
+
+        self.patch_jump(then_jump);
+
+        self.emit_byte(OpCode::OpPop as u8);
+
+        if self.match_token(TokenType::Else) {
+            self.statement();
+        }
+
+        self.patch_jump(else_jump);
+    }
+
+    fn emit_jump(&mut self, instruction: u8) -> u16 {
+        self.emit_byte(instruction);
+        self.emit_byte(0xFF);
+        self.emit_byte(0xFF);
+
+        self.current_chunk.as_ref().unwrap().code.len() as u16 - 2
+    }
+
+    fn patch_jump(&mut self, offset: u16) {
+        let jump = self.current_chunk.as_ref().unwrap().code.len() as u16 - offset - 2;
+
+        if jump == u16::MAX {
+            self.error_at_current("Too much code to jump over.");
+        }
+
+        self.current_chunk.as_mut().unwrap().code[offset as usize] = ((jump >> 8) & 0xFF) as u8;
+        self.current_chunk.as_mut().unwrap().code[offset as usize + 1] = (jump & 0xFF) as u8;
     }
 
     fn begin_scope(&mut self) {
@@ -320,6 +441,27 @@ impl<'a> Compiler<'a> {
         self.emit_constant(Val::object(Obj::String(StringObject::new(value))));
     }
 
+    fn and(&mut self, _: Option<bool>) {
+        let jump_offset = self.emit_jump(OpCode::OpJumpFalse as u8);
+        self.emit_byte(OpCode::OpPop as u8);
+
+        self.parse_precedence(Precedence::And);
+
+        self.patch_jump(jump_offset);
+    }
+
+    fn or(&mut self, _: Option<bool>) {
+        let else_jump = self.emit_jump(OpCode::OpJumpFalse as u8);
+        let end_jump = self.emit_jump(OpCode::OpJump as u8);
+
+        self.patch_jump(else_jump);
+        self.emit_byte(OpCode::OpPop as u8);
+
+        self.parse_precedence(Precedence::Or);
+
+        self.patch_jump(end_jump);
+    }
+
     fn number(&mut self, _: Option<bool>) {
         let value = self.parser.previous.clone().unwrap().start
             [0..self.parser.previous.clone().unwrap().length]
@@ -332,7 +474,6 @@ impl<'a> Compiler<'a> {
     fn emit_constant(&mut self, value: Val) {
         let constant = self.make_constant(value);
         self.emit_bytes(OpCode::OpConstant as u8, constant);
-        self.parser.previous.clone().unwrap();
     }
 
     fn make_constant(&mut self, value: Val) -> u8 {
@@ -367,6 +508,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn end_compiler(&mut self) {
+        self.emit_return();
         if !self.parser.had_error {
             disassemble_chunk(self.current_chunk.as_ref().unwrap(), "code");
         }
@@ -429,9 +571,9 @@ impl<'a> Compiler<'a> {
             TokenType::BangEqual => self.emit_bytes(OpCode::OpEqual as u8, OpCode::OpNot as u8),
             TokenType::EqualEqual => self.emit_byte(OpCode::OpEqual as u8),
             TokenType::Greater => self.emit_byte(OpCode::OpGreater as u8),
-            TokenType::GreaterEqual => self.emit_bytes(OpCode::OpLess as u8, OpCode::OpNot as u8),
+            TokenType::GreaterEqual => self.emit_byte(OpCode::OpGreaterEqual as u8),
             TokenType::Less => self.emit_byte(OpCode::OpLess as u8),
-            TokenType::LessEqual => self.emit_bytes(OpCode::OpGreater as u8, OpCode::OpNot as u8),
+            TokenType::LessEqual => self.emit_byte(OpCode::OpLessEqual as u8),
             TokenType::Minus => self.emit_byte(OpCode::OpSubtract as u8),
             TokenType::Plus => self.emit_byte(OpCode::OpAdd as u8),
             TokenType::Star => self.emit_byte(OpCode::OpMultiply as u8),

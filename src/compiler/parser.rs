@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use super::token::{Token, TokenType};
+use super::token::Token;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Precedence {

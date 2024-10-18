@@ -111,14 +111,14 @@ impl Table {
 
         self.count = 0;
 
-        let old_entries = std::mem::replace(&mut self.entries, Vec::new());
+        let old_entries = std::mem::take(&mut self.entries);
         for entry in old_entries.iter() {
             if entry.key.is_empty() {
                 continue;
             }
 
             let index = (entry.key.hash as usize) % capacity;
-            let mut dest = &mut entries[index];
+            let dest = &mut entries[index];
             dest.key = entry.key.clone();
             dest.value = entry.value.clone();
             self.count += 1;

@@ -25,9 +25,15 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OpReturn => simple_instruction("OP_RETURN", offset),
         OpCode::OpNegate => simple_instruction("OP_NEGATE", offset),
         OpCode::OpConstant => {
-            let constant = chunk.code[offset + 1];
+            let constant = chunk.code[offset + 1] as usize;
             print!("{:16} {:4}", "OP_CONSTANT", constant);
-            println!(" '{}'", chunk.constants.values[constant as usize]);
+
+            if constant < chunk.constants.values.len() {
+                println!(" '{}'", chunk.constants.values[constant]);
+            } else {
+                println!(" [Invalid constant index]");
+            }
+
             offset + 2
         }
         OpCode::OpDefineGlobal => {
@@ -37,9 +43,15 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
             offset + 2
         }
         OpCode::OpGetGlobal => {
-            let constant = chunk.code[offset + 1];
+            let constant = chunk.code[offset + 1] as usize;
             print!("{:16} {:4}", "OP_GET_GLOBAL", constant);
-            println!(" '{}'", chunk.constants.values[constant as usize]);
+
+            if constant < chunk.constants.values.len() {
+                println!(" '{}'", chunk.constants.values[constant]);
+            } else {
+                println!(" [Invalid constant index]");
+            }
+
             offset + 2
         }
         OpCode::OpSetGlobal => {
@@ -58,6 +70,21 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
             let constant = chunk.code[offset + 1];
             print!("{:16} {:4}", "OP_SET_LOCAL", constant);
             println!(" '{}'", chunk.constants.values[constant as usize]);
+            offset + 2
+        }
+        OpCode::OpJump => {
+            let jump = chunk.code[offset + 1] as usize;
+            println!("{:16} {:4}", "OP_JUMP", jump);
+            offset + 2
+        }
+        OpCode::OpJumpFalse => {
+            let jump = chunk.code[offset + 1] as usize;
+            println!("{:16} {:4}", "OP_JUMP_IF_FALSE", jump);
+            offset + 2
+        }
+        OpCode::OpLoop => {
+            let jump = chunk.code[offset + 1] as usize;
+            println!("{:16} {:4}", "OP_LOOP", jump);
             offset + 2
         }
         OpCode::OpPop => simple_instruction("OP_POP", offset),

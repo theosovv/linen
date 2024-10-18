@@ -2,9 +2,10 @@ use super::token::{Token, TokenType};
 
 #[derive(Debug, Clone)]
 pub struct Scanner<'a> {
-    start: &'a str,
-    current: &'a str,
+    start: usize,
+    current: usize,
     line: usize,
+    source: &'a str,
 }
 
 impl<'a> Default for Scanner<'a> {
@@ -16,15 +17,16 @@ impl<'a> Default for Scanner<'a> {
 impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {
         Scanner {
-            start: source,
-            current: source,
+            start: 0,
+            current: 0,
             line: 1,
+            source,
         }
     }
 
     pub fn scan_token(&mut self) -> Token<'a> {
         self.skip_whitespace();
-        self.start = self.current.clone();
+        self.start = self.current;
 
         if self.is_at_end() {
             return self.make_token(TokenType::EOF);
@@ -86,7 +88,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        self.current.is_empty()
+        self.current >= self.source.len()
     }
 
     fn identifier(&mut self) -> Token<'a> {
@@ -94,13 +96,21 @@ impl<'a> Scanner<'a> {
             self.advance();
         }
 
-        let token_type = match self.start.chars().next().unwrap() {
+        let token_type = match self.source[self.start..self.current]
+            .chars()
+            .next()
+            .unwrap()
+        {
             'a' => self.check_keyword(1, 2, "nd", TokenType::And),
             'c' => self.check_keyword(1, 4, "lass", TokenType::Class),
             'e' => self.check_keyword(1, 3, "lse", TokenType::Else),
             'f' => {
-                if self.start.chars().count() > 1 {
-                    match self.start.chars().nth(1).unwrap() {
+                if self.source[self.start..self.current].len() > 1 {
+                    match self.source[self.start..self.current]
+                        .chars()
+                        .nth(1)
+                        .unwrap()
+                    {
                         'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                         'o' => self.check_keyword(2, 1, "r", TokenType::For),
                         _ => TokenType::Identifier,
@@ -110,8 +120,12 @@ impl<'a> Scanner<'a> {
                 }
             }
             'd' => {
-                if self.start.chars().count() > 1 {
-                    match self.start.chars().nth(1).unwrap() {
+                if self.source[self.start..self.current].len() > 1 {
+                    match self.source[self.start..self.current]
+                        .chars()
+                        .nth(1)
+                        .unwrap()
+                    {
                         'a' => self.check_keyword(2, 3, "lse", TokenType::False),
                         'o' => self.check_keyword(2, 1, "r", TokenType::For),
                         'e' => self.check_keyword(2, 1, "f", TokenType::Fun),
@@ -128,8 +142,12 @@ impl<'a> Scanner<'a> {
             'r' => self.check_keyword(1, 5, "eturn", TokenType::Return),
             's' => self.check_keyword(1, 4, "uper", TokenType::Super),
             't' => {
-                if self.start.chars().count() > 1 {
-                    match self.start.chars().nth(1).unwrap() {
+                if self.source[self.start..self.current].len() > 1 {
+                    match self.source[self.start..self.current]
+                        .chars()
+                        .nth(1)
+                        .unwrap()
+                    {
                         'h' => self.check_keyword(2, 2, "is", TokenType::This),
                         'r' => self.check_keyword(2, 2, "ue", TokenType::True),
                         _ => TokenType::Identifier,
@@ -153,8 +171,8 @@ impl<'a> Scanner<'a> {
         rest: &str,
         token_type: TokenType,
     ) -> TokenType {
-        if self.start.len() - self.current.len() == start + length
-            && self.start.get(start..start + length) == Some(rest)
+        if self.current - self.start == start + length
+            && self.source[self.start + start..self.start + start + length] == *rest
         {
             token_type
         } else {
@@ -195,8 +213,8 @@ impl<'a> Scanner<'a> {
     }
 
     fn advance(&mut self) -> char {
-        let c = self.current.chars().next().unwrap();
-        self.current = &self.current[c.len_utf8()..];
+        let c = self.source.chars().nth(self.current).unwrap();
+        self.current += 1;
         c
     }
 
@@ -227,17 +245,19 @@ impl<'a> Scanner<'a> {
     }
 
     fn peek_next(&self) -> char {
-        if self.is_at_end() {
-            return '\0';
+        if self.current + 1 >= self.source.len() {
+            '\0'
+        } else {
+            self.source.chars().nth(self.current + 1).unwrap()
         }
-        self.current.chars().nth(1).unwrap()
     }
 
     fn peek(&self) -> char {
         if self.is_at_end() {
-            return '\0';
+            '\0'
+        } else {
+            self.source.chars().nth(self.current).unwrap()
         }
-        self.current.chars().next().unwrap()
     }
 
     fn match_char(&mut self, expected: char) -> bool {
@@ -245,20 +265,20 @@ impl<'a> Scanner<'a> {
             return false;
         }
 
-        if self.current.chars().next().unwrap() != expected {
+        if self.source.chars().nth(self.current).unwrap() != expected {
             return false;
         }
-        self.current = &self.current[expected.len_utf8()..];
+        self.current += expected.len_utf8();
         true
     }
 
-    fn make_token(&mut self, token_type: TokenType) -> Token<'a> {
-        Token::new(
+    fn make_token(&self, token_type: TokenType) -> Token<'a> {
+        Token {
             token_type,
-            self.start.chars().count() - self.current.chars().count(),
-            self.line,
-            self.start,
-        )
+            start: &self.source[self.start..self.current],
+            length: self.current - self.start,
+            line: self.line,
+        }
     }
 
     fn error_token(&mut self, message: &'a str) -> Token<'a> {
