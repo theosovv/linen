@@ -32,6 +32,7 @@ pub enum OpCode {
     OpLoop = 23,
     OpGreaterEqual = 24,
     OpLessEqual = 25,
+    Call = 26,
 }
 
 impl From<u8> for OpCode {
@@ -63,12 +64,13 @@ impl From<u8> for OpCode {
             23 => OpCode::OpLoop,
             24 => OpCode::OpGreaterEqual,
             25 => OpCode::OpLessEqual,
+            26 => OpCode::Call,
             _ => panic!("Unknown opcode {}", value),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<usize>,

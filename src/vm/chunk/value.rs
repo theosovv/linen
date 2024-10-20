@@ -1,13 +1,13 @@
 use std::fmt;
 
-use super::object::{Obj, Object, ObjectType, StringObject};
+use super::object::{Obj, StringObject};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ValueType {
     Boolean(bool),
     Nil,
     Number(f64),
-    Object(Object),
+    Object(Obj),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,7 +20,7 @@ pub struct Val {
 struct ValueAs {
     boolean: bool,
     number: f64,
-    object: Object,
+    object: Obj,
 }
 
 impl fmt::Display for Val {
@@ -29,8 +29,10 @@ impl fmt::Display for Val {
             ValueType::Boolean(value) => write!(f, "{}", value),
             ValueType::Nil => write!(f, "nil"),
             ValueType::Number(value) => write!(f, "{}", value),
-            ValueType::Object(value) => match value.object_type {
-                ObjectType::String(value) => write!(f, "{}", value),
+            ValueType::Object(object) => match object {
+                Obj::String(value) => write!(f, "{}", value.as_str()),
+                Obj::Function(function) => write!(f, "<{}>", function.name.as_str()),
+                Obj::Native(function) => write!(f, "<native {}>", function.name.as_str()),
             },
         }
     }
@@ -43,22 +45,36 @@ impl Val {
             value_as: ValueAs {
                 boolean: value,
                 number: 0.0,
-                object: Object {
-                    object_type: ObjectType::String(value.to_string()),
-                },
+                object: Obj::String(StringObject::new("false")),
             },
         }
     }
 
     pub fn object(value: Obj) -> Self {
-        match value {
-            Obj::String(value) => Val {
-                value_type: ValueType::Object(value.object.clone()),
+        match value.clone() {
+            Obj::String(_) => Val {
                 value_as: ValueAs {
                     boolean: false,
                     number: 0.0,
-                    object: value.object,
+                    object: value.clone(),
                 },
+                value_type: ValueType::Object(value),
+            },
+            Obj::Function(_) => Val {
+                value_as: ValueAs {
+                    boolean: false,
+                    number: 0.0,
+                    object: value.clone(),
+                },
+                value_type: ValueType::Object(value),
+            },
+            Obj::Native(_) => Val {
+                value_as: ValueAs {
+                    boolean: false,
+                    number: 0.0,
+                    object: value.clone(),
+                },
+                value_type: ValueType::Object(value),
             },
         }
     }
@@ -69,9 +85,7 @@ impl Val {
             value_as: ValueAs {
                 boolean: false,
                 number: 0.0,
-                object: Object {
-                    object_type: ObjectType::String("nil".to_string()),
-                },
+                object: Obj::String(StringObject::new("nil")),
             },
         }
     }
@@ -81,8 +95,10 @@ impl Val {
             ValueType::Boolean(value) => !value,
             ValueType::Nil => true,
             ValueType::Number(value) => value == 0.0,
-            ValueType::Object(value) => match value.object_type {
-                ObjectType::String(value) => value == "nil",
+            ValueType::Object(value) => match value {
+                Obj::String(value) => value.is_empty(),
+                Obj::Function(function) => function.chunk.constants.values.is_empty(),
+                Obj::Native(_) => false,
             },
         }
     }
@@ -93,9 +109,7 @@ impl Val {
             value_as: ValueAs {
                 boolean: false,
                 number: value,
-                object: Object {
-                    object_type: ObjectType::String(value.to_string()),
-                },
+                object: Obj::String(StringObject::new("0.0")),
             },
         }
     }
@@ -116,13 +130,8 @@ impl Val {
         }
     }
 
-    pub fn as_object(&self) -> ObjectType {
-        match self.value_type.clone() {
-            ValueType::Object(value) => match value.object_type {
-                ObjectType::String(value) => ObjectType::String(value),
-            },
-            _ => panic!("Value is not an object"),
-        }
+    pub fn as_object(&self) -> Obj {
+        self.value_as.object.clone()
     }
 
     pub fn is_boolean(&self) -> bool {
@@ -134,8 +143,10 @@ impl Val {
             ValueType::Boolean(value) => value,
             ValueType::Number(value) => value != 0.0,
             ValueType::Nil => false,
-            ValueType::Object(value) => match value.object_type {
-                ObjectType::String(value) => !value.is_empty(),
+            ValueType::Object(obj) => match obj {
+                Obj::String(value) => !value.is_empty(),
+                Obj::Function(function) => !function.chunk.constants.values.is_empty(),
+                Obj::Native(_) => true,
             },
         }
     }
@@ -153,27 +164,29 @@ impl Val {
     }
 
     pub fn as_object_string(&self) -> StringObject {
-        let value = match self.value_type.clone() {
-            ValueType::Object(value) => match value.object_type {
-                ObjectType::String(value) => value,
+        match self.value_type.clone() {
+            ValueType::Object(value) => match value {
+                Obj::String(value) => value,
+                Obj::Function(function) => function.name,
+                Obj::Native(_) => panic!("Value is not a string"),
             },
             _ => panic!("Value is not a string"),
-        };
-
-        StringObject::new(&value)
+        }
     }
 
     pub fn as_string(&self) -> String {
         match self.value_type.clone() {
-            ValueType::Object(value) => match value.object_type {
-                ObjectType::String(value) => value,
+            ValueType::Object(value) => match value {
+                Obj::String(value) => value.as_str(),
+                Obj::Function(function) => function.name.as_str(),
+                Obj::Native(_) => panic!("Value is not a string"),
             },
             _ => panic!("Value is not a string"),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Value {
     pub values: Vec<Val>,
 }

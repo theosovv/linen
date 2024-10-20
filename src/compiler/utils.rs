@@ -9,8 +9,8 @@ pub fn get_rules<'a>() -> HashMap<TokenType, ParseRule<'a>> {
         TokenType::LeftParen,
         ParseRule {
             prefix: Some(Compiler::grouping_expression),
-            infix: None,
-            precedence: Precedence::None,
+            infix: Some(Compiler::call),
+            precedence: Precedence::Call,
         },
     );
 

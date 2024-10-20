@@ -14,6 +14,11 @@ pub fn disassemble_chunk(chunk: &Chunk, name: &str) {
 pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
     print!("{:04} ", offset);
 
+    if offset >= chunk.code.len() {
+        println!("Reached end of code at ip = {}", offset);
+        return offset;
+    }
+
     if offset > 0 && chunk.lines[offset] == chunk.lines[offset - 1] {
         print!("   | ");
     } else {
@@ -30,8 +35,6 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
 
             if constant < chunk.constants.values.len() {
                 println!(" '{}'", chunk.constants.values[constant]);
-            } else {
-                println!(" [Invalid constant index]");
             }
 
             offset + 2
@@ -63,6 +66,12 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OpGetLocal => {
             let constant = chunk.code[offset + 1];
             print!("{:16} {:4}", "OP_GET_LOCAL", constant);
+            println!(" '{}'", chunk.constants.values[constant as usize]);
+            offset + 2
+        }
+        OpCode::Call => {
+            let constant = chunk.code[offset + 1];
+            print!("{:16} {:4}", "OP_CALL", constant);
             println!(" '{}'", chunk.constants.values[constant as usize]);
             offset + 2
         }
@@ -100,10 +109,8 @@ pub fn disassemble_instruction(chunk: &Chunk, offset: usize) -> usize {
         OpCode::OpMultiply => simple_instruction("OP_MULTIPLY", offset),
         OpCode::OpDivide => simple_instruction("OP_DIVIDE", offset),
         OpCode::OpNot => simple_instruction("OP_NOT", offset),
-        _ => {
-            println!("Unknown opcode {}", instruction);
-            offset + 1
-        }
+        OpCode::OpGreaterEqual => simple_instruction("OP_GREATER_EQUAL", offset),
+        OpCode::OpLessEqual => simple_instruction("OP_LESS_EQUAL", offset),
     }
 }
 

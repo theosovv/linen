@@ -5,7 +5,7 @@ pub struct Scanner<'a> {
     start: usize,
     current: usize,
     line: usize,
-    source: &'a str,
+    pub source: &'a str,
 }
 
 impl<'a> Default for Scanner<'a> {
