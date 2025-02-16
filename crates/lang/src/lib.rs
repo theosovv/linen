@@ -1,14 +1,25 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod lexer;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use logos::Logos;
+
+    use crate::lexer::Token;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn lexing_test() {
+        let source = r#"
+            fn main() {
+                let tempo = signal 120;
+                let note = "C4";
+                emit tempo, 130;
+            }
+        "#;
+
+        let mut lexer = Token::lexer(source);
+        let tokens: Vec<Token> = lexer.collect::<Result<_, _>>().unwrap();
+        for token in tokens.iter() {
+            println!("{:?}", token);
+        }
     }
 }
