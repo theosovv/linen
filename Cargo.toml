@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/lang",
+    "crates/vm",
+    "crates/daw",
+    "crates/plugins", "crates/lang", 
+]
