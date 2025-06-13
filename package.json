@@ -1,0 +1,16 @@
+{
+  "name": "linen",
+  "version": "0.0.1",
+  "repository": "git@github.com:theosovv/linen.git",
+  "author": "Theosov <theosov@tutanota.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.3",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-typescript": "^12.1.2",
+    "@types/node": "^24.0.1",
+    "rollup": "^4.43.0",
+    "rollup-plugin-dts": "^6.2.1",
+    "typescript": "^5.8.3"
+  }
+}
