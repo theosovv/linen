@@ -1,3 +1,6 @@
 ROADMAP.md
 DESCRIPTION.md
 node_modules
+dist
+benchmark-csv
+benchmark-results

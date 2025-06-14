@@ -27,6 +27,6 @@
       "@/*": ["src/*"],
     }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "playground"]
+  "include": ["src/**/*", "playground/**/*", "vitest.config.ts", "tests/**/*", "benchmarks/**/*", "scripts/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
