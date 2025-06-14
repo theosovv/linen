@@ -16,6 +16,7 @@ Linen provides a simple and intuitive API for creating reactive state:
 - `computed()` - Creates a derived value that automatically updates when dependencies change
 - `effect()` - Runs side effects when dependencies change
 - `untrack()` - Prevents dependency tracking within a function
+- `events` - Event subscription and notification system
 - `batch()` - Batches multiple updates together
 
 ### TypeScript-first
