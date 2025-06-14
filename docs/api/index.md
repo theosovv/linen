@@ -12,6 +12,7 @@ Linen's core API consists of several key functions that enable reactive programm
 - [untrack()](/api/untrack) - Prevents dependency tracking
 - [events](/api/events) - Event subscription and notification system
 - [batch()](/api/batch) - Batches multiple updates together
+- [disposal](/api/disposal) - Manages the lifecycle of reactive objects
 
 ## Importing
 

@@ -5,6 +5,13 @@ export {
   untrack,
   batch,
   transaction,
+  createResource,
+  createInterval,
+  createTimeout,
+  createEventListener,
+  createEffect,
+  createScope,
+  onCleanup,
 } from './core/signals';
 export {
   PubSub,

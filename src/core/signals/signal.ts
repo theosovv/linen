@@ -1,4 +1,5 @@
 type Fn = () => void;
+type CleanupFn = () => void;
 
 export interface SignalObject<T> {
   value: T;
@@ -11,6 +12,10 @@ const subscribers = new WeakMap<object, Map<PropertyKey, Set<Fn>>>();
 const effectDependencies = new Map<Fn, Set<[object, PropertyKey]>>();
 let batchDepth = 0;
 const pendingEffects = new Set<Fn>();
+const cleanupFunctions = new Map<Fn, Set<CleanupFn>>();
+let currentDisposer: Fn | null = null;
+const disposerStack: Fn[] = [];
+const nestedScopes = new Map<Fn, Set<Fn>>();
 
 /**
  * Creates a new signal with the given initial value.
@@ -143,16 +148,19 @@ function trigger(target: object, key: PropertyKey) {
 export function effect(fn: Fn) {
   const execute = () => {
     cleanup(execute);
+    runCleanupFunctions(execute);
 
     effectsStack.push(execute);
-
     currentEffect = execute;
 
     try {
-      fn();
+      const result = fn();
+
+      if (typeof result === 'function') {
+        registerCleanup(execute, result);
+      }
     } finally {
       effectsStack.pop();
-
       currentEffect = effectsStack[effectsStack.length - 1] ?? null;
     }
   };
@@ -161,6 +169,8 @@ export function effect(fn: Fn) {
 
   return () => {
     cleanup(execute);
+    runCleanupFunctions(execute);
+    cleanupFunctions.delete(execute);
   };
 }
 
@@ -186,6 +196,101 @@ function cleanup(effect: Fn) {
   }
 
   deps.clear();
+}
+
+/**
+ * Registers a cleanup function for the current effect.
+ * @param fn Cleanup function
+ */
+export function onCleanup(fn: CleanupFn): void {
+  if (currentEffect) {
+    registerCleanup(currentEffect, fn);
+  } else if (currentDisposer) {
+    registerCleanup(currentDisposer, fn);
+  }
+}
+
+/**
+ * Registers a cleanup function for an effect.
+ * @param effect Effect function
+ * @param cleanupFn Cleanup function
+ */
+function registerCleanup(effect: Fn, cleanupFn: CleanupFn): void {
+  let cleanups = cleanupFunctions.get(effect);
+
+  if (!cleanups) {
+    cleanups = new Set();
+    cleanupFunctions.set(effect, cleanups);
+  }
+
+  cleanups.add(cleanupFn);
+}
+
+/**
+ * Runs all cleanup functions for an effect.
+ * @param effect Effect function
+ */
+function runCleanupFunctions(effect: Fn): void {
+  const cleanups = cleanupFunctions.get(effect);
+
+  if (!cleanups) return;
+
+  for (const cleanup of cleanups) {
+    try {
+      cleanup();
+    } catch (error) {
+      console.error('Error in cleanup function:', error);
+    }
+  }
+
+  cleanups.clear();
+
+  const nested = nestedScopes.get(effect);
+  if (nested) {
+    for (const nestedScope of nested) {
+      runCleanupFunctions(nestedScope);
+    }
+    nested.clear();
+  }
+}
+
+/**
+ * Creates a disposable scope that automatically cleans up when disposed.
+ * @param fn Function to run in the disposable scope
+ * @returns Dispose function
+ */
+export function createScope(fn: () => void): () => void {
+  const dispose = () => {
+    runCleanupFunctions(dispose);
+    cleanupFunctions.delete(dispose);
+    nestedScopes.delete(dispose);
+  };
+
+  const prevDisposer = currentDisposer;
+
+  if (prevDisposer) {
+    let nested = nestedScopes.get(prevDisposer);
+    if (!nested) {
+      nested = new Set();
+      nestedScopes.set(prevDisposer, nested);
+    }
+    nested.add(dispose);
+  }
+
+  currentDisposer = dispose;
+  disposerStack.push(dispose);
+
+  try {
+    fn();
+  } finally {
+    disposerStack.pop();
+    currentDisposer =
+      disposerStack.length > 0
+        ? disposerStack[disposerStack.length - 1]
+        : prevDisposer;
+  }
+
+  return dispose;
 }
 
 /**

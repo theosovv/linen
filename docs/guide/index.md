@@ -18,6 +18,7 @@ Linen provides a simple and intuitive API for creating reactive state:
 - `untrack()` - Prevents dependency tracking within a function
 - `events` - Event subscription and notification system
 - `batch()` - Batches multiple updates together
+- `disposal()` - Manages the lifecycle of reactive objects
 
 ### TypeScript-first
 
