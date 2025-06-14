@@ -91,6 +91,22 @@ count.value = 1;
 // Logs: "Count is now: 1"
 ```
 
+### Event subscription and notification system
+
+Linen provides a powerful event subscription and notification system that integrates with the reactive signal system. This system allows components to subscribe to events and receive notifications when they occur.
+
+```typescript
+import { createPubSub, globalPubSub } from 'linen';
+
+// Using the global instance
+globalPubSub.subscribe('event', (data) => {
+  console.log(data);
+});
+
+// Creating a local instance
+const localPubSub = createPubSub();
+```
+
 ## Next Steps
 
 Now that you understand the basics of Linen's reactivity system, check out the [API Reference](/api/) for more details on each function.

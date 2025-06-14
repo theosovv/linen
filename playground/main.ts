@@ -1,15 +1,5 @@
-import { signal, computed, effect } from '../src';
+import { signalPlayground } from './src/signal';
+import { eventsPlayground } from './src/events';
 
-const count = signal(0);
-const multiplier = signal(2);
-
-const doubled = computed(() => count.value * multiplier.value);
-
-effect(() => {
-  console.log(
-    `count: ${count.value}, multiplier: ${multiplier.value}, doubled: ${doubled.value}`
-  );
-});
-
-count.value = 5;
-multiplier.value = 3;
+signalPlayground();
+eventsPlayground();

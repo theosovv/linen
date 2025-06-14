@@ -37,6 +37,7 @@ export default defineConfig({
             { text: 'computed()', link: '/api/computed' },
             { text: 'effect()', link: '/api/effect' },
             { text: 'untrack()', link: '/api/untrack' },
+            { text: 'events', link: '/api/events'},
             { text: 'batch()', link: '/api/batch' }
           ]
         }

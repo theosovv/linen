@@ -10,6 +10,7 @@ Linen's core API consists of several key functions that enable reactive programm
 - [computed()](/api/computed) - Creates a computed value that depends on signals
 - [effect()](/api/effect) - Creates an effect that runs when dependencies change
 - [untrack()](/api/untrack) - Prevents dependency tracking
+- [events](/api/events) - Event subscription and notification system
 - [batch()](/api/batch) - Batches multiple updates together
 
 ## Importing
@@ -17,7 +18,7 @@ Linen's core API consists of several key functions that enable reactive programm
 You can import all core APIs directly from the main package:
 
 ```typescript
-import { signal, computed, effect, untrack, batch } from 'linen';
+import { signal, computed, effect, untrack, batch, events } from 'linen';
 ```
 
 ## TypeScript Support

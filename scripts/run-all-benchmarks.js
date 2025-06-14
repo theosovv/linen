@@ -30,6 +30,7 @@ runBenchmark('Basic Benchmarks', path.join(benchmarksDir, 'index.js'));
 runBenchmark('Comparison Benchmarks', path.join(benchmarksDir, 'comparison.js'));
 runBenchmark('Complex Benchmarks', path.join(benchmarksDir, 'complex.js'));
 runBenchmark('Real-World Benchmarks', path.join(benchmarksDir, 'real-world.js'));
+runBenchmark('Events Benchmarks', path.join(benchmarksDir, 'events.js'));
 
 console.log('\nAll benchmarks completed!');
 console.log('Generating CSV reports...');
