@@ -26,12 +26,13 @@ function runBenchmark(name, file) {
 
 console.log('Running all benchmarks...');
 
-// runBenchmark('Basic Benchmarks', path.join(benchmarksDir, 'index.js'));
-// runBenchmark('Comparison Benchmarks', path.join(benchmarksDir, 'comparison.js'));
-// runBenchmark('Complex Benchmarks', path.join(benchmarksDir, 'complex.js'));
-// runBenchmark('Real-World Benchmarks', path.join(benchmarksDir, 'real-world.js'));
-// runBenchmark('Events Benchmarks', path.join(benchmarksDir, 'events.js'));
+runBenchmark('Basic Benchmarks', path.join(benchmarksDir, 'index.js'));
+runBenchmark('Comparison Benchmarks', path.join(benchmarksDir, 'comparison.js'));
+runBenchmark('Complex Benchmarks', path.join(benchmarksDir, 'complex.js'));
+runBenchmark('Real-World Benchmarks', path.join(benchmarksDir, 'real-world.js'));
+runBenchmark('Events Benchmarks', path.join(benchmarksDir, 'events.js'));
 runBenchmark('Batch Benchmarks', path.join(benchmarksDir, 'batch.js'));
+runBenchmark('Disposal Benchmarks', path.join(benchmarksDir, 'disposal.js'));
 
 console.log('\nAll benchmarks completed!');
 console.log('Generating CSV reports...');

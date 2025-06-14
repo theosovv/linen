@@ -38,7 +38,8 @@ export default defineConfig({
             { text: 'effect()', link: '/api/effect' },
             { text: 'untrack()', link: '/api/untrack' },
             { text: 'events', link: '/api/events'},
-            { text: 'batch()', link: '/api/batch' }
+            { text: 'batch()', link: '/api/batch' },
+            { text: 'disposal', link: '/api/disposal' }
           ]
         }
       ],
