@@ -1,11 +1,13 @@
-import { createPubSub } from '../../src/core/events';
 import {
   eventSignal,
   eventHistory,
   eventEffect,
   publishEffect,
-} from '../../src/core/events';
-import { signal, computed, effect } from '../../src/core/signals';
+  signal,
+  computed,
+  effect,
+  createPubSub,
+} from '../../src';
 
 interface User {
   name: string;

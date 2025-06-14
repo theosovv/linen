@@ -1,4 +1,11 @@
-export { signal, computed, effect, untrack } from './core/signals';
+export {
+  signal,
+  computed,
+  effect,
+  untrack,
+  batch,
+  transaction,
+} from './core/signals';
 export {
   PubSub,
   globalPubSub,

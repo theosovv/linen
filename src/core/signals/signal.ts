@@ -9,6 +9,8 @@ let currentEffect: Fn | null = null;
 const effectsStack: Fn[] = [];
 const subscribers = new WeakMap<object, Map<PropertyKey, Set<Fn>>>();
 const effectDependencies = new Map<Fn, Set<[object, PropertyKey]>>();
+let batchDepth = 0;
+const pendingEffects = new Set<Fn>();
 
 /**
  * Creates a new signal with the given initial value.
@@ -125,7 +127,11 @@ function trigger(target: object, key: PropertyKey) {
   const effects = [...dep];
 
   for (const effect of effects) {
-    effect();
+    if (batchDepth > 0) {
+      pendingEffects.add(effect);
+    } else {
+      effect();
+    }
   }
 }
 
@@ -186,7 +192,31 @@ function cleanup(effect: Fn) {
  * Runs the function in a batch.
  * @param fn Function to run
  */
-export function batch(fn: () => void) {
-  // TODO
-  fn();
+export function batch<T>(fn: () => T): T {
+  batchDepth++;
+
+  try {
+    return fn();
+  } finally {
+    batchDepth--;
+
+    if (batchDepth === 0 && pendingEffects.size > 0) {
+      const effects = [...pendingEffects];
+
+      pendingEffects.clear();
+
+      for (const effect of effects) {
+        effect();
+      }
+    }
+  }
+}
+
+/**
+ * Creates a transaction that automatically batches all signal updates.
+ * @param fn Function to run in transaction
+ * @returns Result of the function
+ */
+export function transaction<T>(fn: () => T): T {
+  return batch(fn);
 }
