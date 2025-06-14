@@ -1,4 +1,3 @@
-
 /**
  * Interface for typed pubsub
  */
