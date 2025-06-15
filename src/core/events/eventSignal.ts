@@ -1,4 +1,4 @@
-import { signal } from '../signals';
+import { onCleanup, signal } from '../signals';
 import { globalPubSub } from './pubsub';
 import { TypedPubSub } from './types';
 
@@ -16,9 +16,11 @@ export function eventSignal<T>(
 ) {
   const eventValue = signal<T>(initialValue);
 
-  pubSub.subscribe(event, (data: T) => {
+  const unsubscribe = pubSub.subscribe(event, (data: T) => {
     eventValue.value = data as T;
   });
+
+  onCleanup(unsubscribe);
 
   return eventValue;
 }
@@ -37,7 +39,7 @@ export function eventHistory<T>(
 ) {
   const history = signal<T[]>([]);
 
-  pubSub.subscribe(event, (data: T) => {
+  const unsubscribe = pubSub.subscribe(event, (data: T) => {
     const newHistory = [...history.value, data];
 
     if (maxHistory > 0 && newHistory.length > maxHistory) {
@@ -46,6 +48,8 @@ export function eventHistory<T>(
       history.value = newHistory;
     }
   });
+
+  onCleanup(unsubscribe);
 
   return history;
 }

@@ -8,11 +8,11 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      'linen': resolve(__dirname, 'src/index.ts'),
+      'linen': resolve(__dirname, 'dist/index.esm.js'),
     }
   },
   server: {
     port: 3000,
     open: true
-  }
+  },
 });

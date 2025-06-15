@@ -41,6 +41,14 @@ export default defineConfig({
             { text: 'batch()', link: '/api/batch' },
             { text: 'disposal', link: '/api/disposal' }
           ]
+        },
+        {
+          text: 'DOM API',
+          items: [
+            { text: 'h', link: '/api/h' },
+            { text: 'render', link: '/api/render' },
+            { text: 'Fragment', link: '/api/fragment' },
+          ]
         }
       ],
       '/examples/': [

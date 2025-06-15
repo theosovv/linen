@@ -5,16 +5,8 @@ export {
   untrack,
   batch,
   transaction,
-  createResource,
-  createInterval,
-  createTimeout,
-  createEventListener,
-  createEffect,
-  createScope,
-  onCleanup,
 } from './core/signals';
 export {
-  PubSub,
   globalPubSub,
   createPubSub,
   eventSignal,
@@ -22,3 +14,5 @@ export {
   eventEffect,
   publishEffect,
 } from './core/events';
+export { render, Fragment } from './core/dom';
+export { default } from './core/dom/h';

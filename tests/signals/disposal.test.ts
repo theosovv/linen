@@ -1,15 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { signal, effect } from '../../src/';
+import { createScope, onCleanup } from '../../src/core/signals/signal';
 import {
-  signal,
-  effect,
-  onCleanup,
-  createScope,
-  createResource,
   createInterval,
   createTimeout,
   createEventListener,
   createEffect,
-} from '../../src/';
+  createResource,
+} from '../../src/core/signals/resource';
 
 describe('Disposal and Cleanup', () => {
   beforeEach(() => {

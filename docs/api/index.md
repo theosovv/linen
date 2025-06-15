@@ -14,6 +14,13 @@ Linen's core API consists of several key functions that enable reactive programm
 - [batch()](/api/batch) - Batches multiple updates together
 - [disposal](/api/disposal) - Manages the lifecycle of reactive objects
 
+## DOM API
+
+Linen provides low-level DOM utilities for building reactive UIs without extra abstraction. These functions are especially useful for custom renderers, advanced integrations, or when you want full control over the DOM.
+
+- [render()](/api/render) - Renders a DOM tree
+- [Fragment](/api/fragment) - Creates a DOM fragment
+
 ## Importing
 
 You can import all core APIs directly from the main package:

@@ -58,7 +58,7 @@ export function createTimeout(callback: () => void, delay: number): () => void {
 export function createEventListener<K extends keyof HTMLElementEventMap>(
   target: HTMLElement | Window | Document,
   type: K,
-  listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any,
+  listener: (this: HTMLElement, ev: HTMLElementEventMap[K]) => unknown,
   options?: boolean | AddEventListenerOptions
 ): () => void {
   target.addEventListener(type, listener as EventListener, options);
