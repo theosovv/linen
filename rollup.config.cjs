@@ -46,7 +46,7 @@ module.exports = [
     output: {
       file: 'dist/index.umd.js',
       format: 'umd',
-      name: 'MyFramework',
+      name: 'Linen',
       sourcemap: true
     },
     plugins
@@ -55,6 +55,54 @@ module.exports = [
     input: 'src/index.ts',
     output: {
       file: 'dist/index.d.ts',
+      format: 'esm'
+    },
+    plugins: [dts()]
+  },
+  {
+    input: 'src/jsx-runtime.ts',
+    output: {
+      file: 'dist/jsx-runtime.js',
+      format: 'esm',
+      sourcemap: true
+    },
+    external,
+    plugins
+  },
+  {
+    input: 'src/jsx-runtime.ts',
+    output: {
+      file: 'dist/jsx-runtime.esm.js',
+      format: 'esm',
+      sourcemap: true
+    },
+    external,
+    plugins
+  },
+  {
+    input: 'src/jsx-runtime.ts',
+    output: {
+      file: 'dist/jsx-runtime.cjs.js',
+      format: 'cjs',
+      sourcemap: true
+    },
+    external,
+    plugins
+  },
+  {
+    input: 'src/jsx-runtime.ts',
+    output: {
+      file: 'dist/jsx-runtime.umd.js',
+      format: 'umd',
+      name: 'Linen',
+      sourcemap: true
+    },
+    plugins
+  },
+  {
+    input: 'src/jsx-runtime.ts',
+    output: {
+      file: 'dist/jsx-runtime.d.ts',
       format: 'esm'
     },
     plugins: [dts()]

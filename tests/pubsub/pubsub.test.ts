@@ -1,4 +1,4 @@
-import { PubSub } from '../../src';
+import { PubSub } from '../../src/core/events';
 import { describe, it, expect, vi } from 'vitest';
 
 describe('PubSub', () => {
