@@ -1,187 +1,269 @@
-# Linen: Functional-Reactive Music Programming Language
+# Linen Project Guide for AI Agents
+
+This document provides essential information for AI coding agents working on the Linen project.
 
 ## Project Overview
 
-**Linen** is a functional-reactive programming language designed specifically for music and audio applications. The project is currently at the specification/design stage — it consists of comprehensive language documentation but no implementation code yet.
+**Linen** is a functional-reactive programming language designed for music and audio applications. It combines:
+- **Functional programming**: Immutable data, first-class functions, Hindley-Milner type system
+- **Reactive programming**: Time-varying values (Behaviors) and discrete events
+- **Real-time audio**: Low-latency processing with hot reload without state loss
 
-The language is inspired by Haskell and OCaml syntax, with Functional Reactive Programming (FRP) as its core paradigm. Key features include:
+The project is implemented in Rust as a Cargo workspace. The language targets live coding scenarios where musicians modify code while audio is playing, preserving oscillator phases, envelope positions, and delay line contents across reloads.
 
-- **Hot reload without state loss** — Incremental FRP (IFRP) allows code modification without losing audio state (oscillator phases, envelope positions, delay lines)
-- **Strong static typing** — Hindley-Milner type system with extensions (type classes, linear types, limited dependent types)
-- **Low-latency audio** — Specialized VM + JIT compilation targeting real-time audio processing
-- **Live coding oriented** — Designed for interactive music performance
+## Technology Stack
+
+- **Language**: Rust >= 1.75
+- **Build System**: Cargo workspace
+- **Parser**: chumsky (v1.0.0-alpha.7) - parser combinator library
+- **Testing**: proptest (property-based), insta (snapshot), criterion (benchmarks)
+- **Audio**: CPAL (cross-platform), JACK (Linux low-latency)
+- **Concurrency**: crossbeam (lock-free data structures)
 
 ## Project Structure
 
 ```
-/home/theosov/projects/linen/
-├── AGENTS.md          # This file — agent instructions
+linen/
+├── Cargo.toml              # Workspace root
+├── crates/
+│   ├── compiler/           # linen-compiler - Frontend
+│   │   ├── src/
+│   │   │   ├── lib.rs      # Main entry
+│   │   │   ├── lexer.rs    # Tokenization
+│   │   │   ├── parser.rs   # CST → AST
+│   │   │   ├── typeck.rs   # Type checker (HM + Linear)
+│   │   │   ├── ir.rs       # Intermediate representation
+│   │   │   ├── codegen.rs  # Bytecode generation
+│   │   │   └── error.rs    # Error types
+│   │   └── Cargo.toml
+│   ├── vm/                 # linen-vm - Runtime
+│   │   ├── src/
+│   │   │   ├── lib.rs      # Main entry
+│   │   │   ├── vm.rs       # Stack-based VM
+│   │   │   ├── bytecode.rs # Bytecode format
+│   │   │   ├── audio.rs    # Audio thread (real-time)
+│   │   │   ├── memory.rs   # Region-based allocation
+│   │   │   └── jit.rs      # JIT compilation hooks
+│   │   └── Cargo.toml
+│   ├── stdlib/             # linen-stdlib - Standard library
+│   │   ├── src/
+│   │   │   ├── lib.rs
+│   │   │   ├── primitives.rs # Oscillators, filters
+│   │   │   ├── frp.rs        # FRP combinators
+│   │   │   ├── effects.rs    # Reverb, delay, compression
+│   │   │   ├── time.rs       # BPM, transport
+│   │   │   └── io.rs         # MIDI, file I/O
+│   │   └── Cargo.toml
+│   └── cli/                # linen-cli - Command-line interface
+│       ├── src/
+│       │   └── main.rs     # CLI entry point
+│       └── Cargo.toml
 ├── docs/
-│   └── linen.md       # Complete language specification (Russian)
-└── .git/              # Git repository (empty, no commits yet)
+│   ├── architecture.md     # Implementation details, bytecode spec
+│   ├── language-spec.md    # Full language specification
+│   ├── syntax-summary.md   # Quick reference
+│   ├── roadmap.md          # Development roadmap (in Russian)
+│   └── cross-reference.md  # Index
+├── .kimi/skills/frp-linen/SKILL.md  # FRP patterns documentation
+├── Cargo.lock
+├── rustfmt.toml            # Formatting config
+├── .pre-commit-config.yaml # Git hooks
+└── .github/workflows/ci.yml # CI configuration
 ```
 
-The project currently contains only documentation. The specification in `docs/linen.md` covers:
-- Language architecture and type system
-- Audio primitives (oscillators, ADSR envelopes, filters)
-- VM and JIT design
-- Standard library design
-- DAW integration plans
-- Development workflow
-
-## Technology Stack (Planned)
-
-Based on the specification, the implementation is planned to use:
-
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| Bootstrap compiler | OCaml (≥ 4.14) or Haskell | Initial implementation |
-| Build system | dune (OCaml) or cabal (Haskell) | Compilation and packaging |
-| Parser generator | menhir | Language parser |
-| Audio I/O | PortAudio, JACK, CoreAudio | Cross-platform audio |
-| File I/O | libsndfile | WAV file support |
-| JIT compilation | Cranelift / LLVM | Hot code optimization |
-
-## Build Commands (Planned)
-
-Once implemented, the workflow will be:
+## Build Commands
 
 ```bash
-# Install dependencies (OCaml path)
-opam install . --deps-only
+# Build all crates
+cargo build
 
-# Build the compiler/VM
-dune build
+# Release build (optimized)
+cargo build --release
 
-# Run tests
-dune test
+# Check without building
+cargo check --all-features
+```
 
-# Interactive REPL
-linen repl
+## Test Commands
 
-# Run a Linen program
-linen run examples/sine_wave.ln
+```bash
+# Run all tests
+cargo test --workspace
 
-# Compile to bytecode
-linen compile -o output.bc source.ln
+# Run tests for specific crate
+cargo test -p linen-compiler
+cargo test -p linen-vm
 
-# Run with JIT optimization
-linen run --jit source.ln
+# Run with coverage (requires cargo-tarpaulin)
+cargo tarpaulin --workspace
+```
+
+## Code Quality Commands
+
+```bash
+# Format all code
+cargo fmt --all
+
+# Check formatting without modifying
+cargo fmt --all -- --check
+
+# Run linter
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Generate documentation
+cargo doc --no-deps --all-features --workspace
+
+# Run pre-commit hooks manually
+pre-commit run --all-files
 ```
 
 ## Code Style Guidelines
 
-### Language Syntax
+- **Formatting**: Uses `rustfmt.toml` configuration
+  - Edition: 2024
+  - Max width: 100 characters
+  - Tab spaces: 4 (spaces, not tabs)
+  - Newline style: Unix
+- **Documentation**: All public items must have doc comments
+- **Naming**: Follow standard Rust conventions (snake_case for functions/variables, PascalCase for types)
+- **Error handling**: Use `thiserror` for error types, `anyhow` for application errors
+- **Traits**: Prefer explicit imports over glob imports
 
-Linen uses Haskell/OCaml-inspired syntax:
+## Key Language Features
 
+### FRP (Functional Reactive Programming)
+
+- **Behavior a**: Continuous time-varying values
+- **Event a**: Discrete occurrences
+- **SF a b**: Signal functions (stateful transformations)
+
+Example:
 ```linen
--- Function definition with type annotation
-let sineWave : Behavior Float =
-  let phase = integral (freq / sampleRate) in
-  sin (2.0 * pi * phase)
-
--- Recursive functions
-let rec fib n =
-  if n < 2 then n else fib (n-1) + fib (n-2)
-
--- Pattern matching
-match event with
-| NoteOn (note, vel) -> triggerEnvelope
-| NoteOff -> releaseEnvelope
+-- Sine wave with vibrato
+let vibrato = sin (2.0 * pi * 5.0 * time) in
+let freq = 440.0 + 5.0 * vibrato in
+sinOsc freq
 ```
 
-### Naming Conventions (from spec)
+### Proc Notation
 
-- Functions and variables: `camelCase` or `snake_case`
-- Type constructors: `PascalCase`
-- Type variables: lowercase (`a`, `b`, `c`)
-- Module names: `PascalCase`
-
-### Type Annotations
-
-Always include type annotations for top-level definitions:
-
+Arrow notation for signal functions:
 ```linen
-let main : Audio () =
-  audioOut (sineWave * 0.5)
+synth = proc midi -> do
+    freq  <- arr midiToFreq -< midi
+    osc   <- sinOsc         -< freq
+    env   <- adsr 0.1 0.3 0.7 1.0 -< gate midi
+    returnA -< osc * env
 ```
 
-## Key Language Concepts
+### Linear Types
 
-### FRP Abstractions
-
-| Concept | Type | Description |
-|---------|------|-------------|
-| `Behavior a` | `Time → a` | Continuous time-varying value |
-| `Event a` | `[(Time, a)]` | Discrete occurrences with values |
-| `SF a b` | Signal Function | Stateful signal transformation |
-
-### Audio Primitives
-
-| Primitive | Description |
-|-----------|-------------|
-| `sinOsc`, `sawOsc`, `squareOsc`, `triOsc` | Basic oscillators |
-| `adsr` | ADSR envelope generator |
-| `lpf`, `hpf`, `bpf` | Biquad filters |
-| `audioOut` | Output to audio interface |
-| `midiIn` / `midiOut` | MIDI I/O |
-
-### Effects Monad
-
-All I/O operations use the `Audio` monad:
-
-```haskell
-newtype Audio a = Audio { runAudio :: AudioContext -> IO a }
+Resource safety for audio buffers:
+```linen
+allocBuffer : Int -> lin AudioBuffer
+freeBuffer : lin AudioBuffer -> ()
 ```
+
+### Hot Reload Attributes
+
+State preservation across reloads:
+```linen
+#[stable("main-lfo")]
+lfo = sinOsc 0.5
+```
+
+## VM Architecture
+
+The VM has a **dual-context execution model**:
+
+1. **Audio Context**: Hard real-time, no allocation, no blocking
+   - Opcodes: 0xD0-0xDF (oscillators, filters, I/O)
+   - Runs in audio callback at sample rate
+
+2. **Control Context**: Soft real-time, GC allowed
+   - Opcodes: 0xA0-0xCF, 0xF0-0xFF (FRP, closures, exceptions)
+   - Handles UI, file I/O, compilation
+
+3. **Universal Opcodes**: Both contexts (0x00-0x9F, 0xE0-0xEF)
+
+Communication between contexts uses lock-free ring buffers with `ThreadMessage` types.
+
+## Development Status
+
+The project is in **early development** (Phase 0-1 of roadmap). Many components have scaffolding but are not fully implemented:
+
+- Compiler: Structure defined, implementation pending
+- VM: Structure defined, implementation pending
+- CLI: Command structure exists, commands are stubs
+
+Refer to `docs/roadmap.md` (in Russian) for detailed phase breakdown.
 
 ## Testing Strategy
 
-From the specification, testing approaches include:
+- **Unit tests**: In each crate's `tests/` directory or inline
+- **Property-based tests**: Using `proptest` for roundtrip testing
+- **Snapshot tests**: Using `insta` for parser/output verification
+- **Integration tests**: Will be in `tests/` at workspace root
 
-1. **Unit tests** for audio primitives
-2. **Property-based testing** for signal functions
-3. **Integration tests** with audio file comparison
-4. **Real-time performance tests** — measuring deadline compliance
+## Dependencies Between Crates
 
-## Development Notes
+```
+linen-cli
+├── linen-compiler
+├── linen-vm
+└── linen-stdlib
+    └── linen-vm
+```
 
-### Important Considerations for Implementation
+## CI/CD Pipeline
 
-1. **No GC in audio thread** — Use region-based allocation, object pools, linear types
-2. **Lock-free structures** — For communication between audio and control threads
-3. **Deterministic execution** — Strict evaluation for timing-critical code
-4. **State preservation** — IFRP requires term labeling and state migration
+GitHub Actions runs:
+1. `cargo check --all-features`
+2. `cargo fmt --all -- --check`
+3. `cargo clippy --all-targets --all-features -- -D warnings`
+4. `cargo test --all-features --workspace` (Ubuntu, macOS)
+5. `cargo doc --no-deps --all-features --workspace`
+6. Code coverage with `cargo-tarpaulin`
 
-### Target Audio Backends
+## Documentation References
 
-| Backend | Platform | Priority |
-|---------|----------|----------|
-| JACK | Linux, macOS | Primary |
-| CoreAudio | macOS | Secondary |
-| ALSA | Linux | Fallback |
-| WASAPI | Windows | Windows support |
-| PortAudio | All | Development/testing |
+- **Language Spec**: `docs/language-spec.md` - Complete language reference
+- **Architecture**: `docs/architecture.md` - Bytecode, AST, VM internals
+- **FRP Patterns**: `.kimi/skills/frp-linen/SKILL.md` - FRP patterns and anti-patterns
+- **Syntax Quick Ref**: `docs/syntax-summary.md` - Cheat sheet
+- **Contributing**: `CONTRIBUTING.md` - Contribution guidelines
 
-## Next Steps for Development
+## Common Tasks
 
-Based on the specification, implementation should proceed in this order:
+### Adding a New Opcode
 
-1. **Lexer and Parser** — Implement language frontend
-2. **Type checker** — Hindley-Milner with extensions
-3. **Bytecode VM** — Stack-based VM for audio primitives
-4. **Audio backend abstraction** — PortAudio integration
-5. **JIT compiler** — Cranelift-based compilation
-6. **Hot reload mechanism** — IFRP state migration
-7. **Standard library** — Filters, effects, I/O
-8. **DAW plugins** — VST3/AU integration
+1. Define in `crates/vm/src/bytecode.rs`
+2. Add execution in `crates/vm/src/vm.rs`
+3. Add codegen in `crates/compiler/src/codegen.rs`
+4. Update `docs/architecture.md` §3
 
-## References
+### Adding a Standard Library Function
 
-- Main specification: `docs/linen.md` (in Russian)
-- FRP theory: Yampa, Fran, Reactive-banana
-- Audio programming: JACK, SuperCollider, Max/MSP
+1. Implement in appropriate module in `crates/stdlib/src/`
+2. Add to VM primitives if needed
+3. Document in language spec
 
----
+### Working on Parser
 
-*Note: This project is currently in specification phase. No implementation code exists yet. The `docs/linen.md` file contains the complete technical specification for the language.*
+The parser uses **chumsky** with the following pipeline:
+```
+Source → Tokenizer → Parser → AST Lowering → Typed AST
+```
+
+See `docs/architecture.md` §2 for AST node definitions.
+
+## Security Considerations
+
+- Audio thread must never allocate or block (real-time safety)
+- FFI is restricted to built-in bindings (no user-defined FFI in v1.0)
+- Linear types ensure resources are properly managed
+- VM bytecode is validated before execution
+
+## License
+
+Dual-licensed under MIT OR Apache-2.0.

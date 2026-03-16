@@ -9,14 +9,13 @@ resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Linen Contributors"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/linen-lang/linen"
-homepage = "https://github.com/linen-lang/linen"
+license = "MIT"
+repository = "https://github.com/theosovv/linen"
 keywords = ["audio", "music", "functional", "reactive", "dsp"]
 categories = ["compilers", "multimedia::audio"]
-rust-version = "1.75"
+rust-version = "1.93"
 
 [workspace.dependencies]
 # Core dependencies shared across crates
