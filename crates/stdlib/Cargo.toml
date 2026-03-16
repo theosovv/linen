@@ -1,0 +1,28 @@
+[package]
+name = "linen-stdlib"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "MIT"
+repository = "https://github.com/theosovv/linen"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Linen standard library - audio primitives, effects, and utilities"
+
+[dependencies]
+linen-vm = { workspace = true }
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+# Audio processing
+rustfft = "6.1"
+realfft = "3.3"
+
+# Interpolation
+# interp = "0.4"  # TODO: find correct version
+
+[dev-dependencies]
+proptest.workspace = true
+approx = "0.5"

@@ -1,0 +1,42 @@
+[package]
+name = "linen-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license = "MIT"
+repository = "https://github.com/theosovv/linen"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Linen command-line interface - compiler, REPL, and tools"
+
+[[bin]]
+name = "linen"
+path = "src/main.rs"
+
+[dependencies]
+linen-compiler = { workspace = true }
+linen-vm = { workspace = true }
+linen-stdlib = { workspace = true }
+
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# CLI
+clap = { version = "4.4", features = ["derive", "env"] }
+
+# REPL
+rustyline = "13.0"
+
+# File watching for hot reload
+notify = "6.1"
+
+# Error formatting
+miette = { version = "7.0", features = ["fancy"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.8"

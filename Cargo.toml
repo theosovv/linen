@@ -1,0 +1,43 @@
+[workspace]
+members = [
+    "crates/compiler",
+    "crates/vm",
+    "crates/stdlib",
+    "crates/cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Linen Contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/linen-lang/linen"
+homepage = "https://github.com/linen-lang/linen"
+keywords = ["audio", "music", "functional", "reactive", "dsp"]
+categories = ["compilers", "multimedia::audio"]
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Core dependencies shared across crates
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Testing
+proptest = "1.4"
+
+# Internal dependencies (path-based)
+linen-compiler = { path = "crates/compiler" }
+linen-vm = { path = "crates/vm" }
+linen-stdlib = { path = "crates/stdlib" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
+debug = true
