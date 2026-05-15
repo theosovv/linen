@@ -1,0 +1,15 @@
+[package]
+name = "linen-parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Recursive descent parser for the Linen programming language"
+
+[dependencies]
+linen-core = { path = "../linen-core" }
+linen-lexer = { path = "../linen-lexer" }
+
+[dev-dependencies]

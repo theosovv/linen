@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "linen-core",
+    "linen-lexer",
+    "linen-parser",
+    "linen-dsp",
+    "linc",
+    "linen-repl",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Linen Team"]
+license = "MIT"
+repository = "https://github.com/linen-lang/linen"
+rust-version = "1.70.0"

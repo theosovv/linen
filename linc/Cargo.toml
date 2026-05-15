@@ -1,0 +1,22 @@
+[package]
+name = "linc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "CLI compiler and runner for the Linen programming language"
+
+[[bin]]
+name = "linc"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+linen-core = { path = "../linen-core" }
+linen-lexer = { path = "../linen-lexer" }
+linen-parser = { path = "../linen-parser" }
+linen-dsp = { path = "../linen-dsp" }
+
+[dev-dependencies]
