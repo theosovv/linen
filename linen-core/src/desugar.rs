@@ -141,6 +141,29 @@ pub fn desugar_expr(expr: &ast::Expr) -> CoreExpr {
                 .collect();
             CoreExpr::Apply(Atom::Var("__tuple".to_string()), atoms, *span)
         }
+        ast::Expr::Binary(op, left, right, span) => {
+            let op_name = match op {
+                ast::BinOp::Add => "__add",
+                ast::BinOp::Sub => "__sub",
+                ast::BinOp::Mul => "__mul",
+                ast::BinOp::Div => "__div",
+                ast::BinOp::Eq => "__eq",
+                ast::BinOp::Neq => "__neq",
+                ast::BinOp::Lt => "__lt",
+                ast::BinOp::Gt => "__gt",
+                ast::BinOp::Lte => "__lte",
+                ast::BinOp::Gte => "__gte",
+                ast::BinOp::And => "__and",
+                ast::BinOp::Or => "__or",
+            };
+            let left_atom = atomize(desugar_expr(left), *span);
+            let right_atom = atomize(desugar_expr(right), *span);
+            CoreExpr::Apply(
+                Atom::Var(op_name.to_string()),
+                vec![left_atom, right_atom],
+                *span,
+            )
+        }
     }
 }
 

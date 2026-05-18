@@ -38,6 +38,8 @@ pub enum Token {
     True,
     #[token("false")]
     False,
+    #[token("\\")]
+    Backslash,
 
     // Operators
     #[token("|")]

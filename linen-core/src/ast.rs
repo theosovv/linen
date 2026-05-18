@@ -87,6 +87,23 @@ pub enum Type {
     Var(String),
 }
 
+/// Binary operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    Lte,
+    Gte,
+    And,
+    Or,
+}
+
 /// Expression AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -102,6 +119,7 @@ pub enum Expr {
     List(Vec<Expr>, Span),
     FieldAccess(Box<Expr>, String, Span),
     Tuple(Vec<Expr>, Span),
+    Binary(BinOp, Box<Expr>, Box<Expr>, Span),
 }
 
 impl Expr {
@@ -118,7 +136,8 @@ impl Expr {
             | Expr::Record(_, span)
             | Expr::List(_, span)
             | Expr::FieldAccess(_, _, span)
-            | Expr::Tuple(_, span) => *span,
+            | Expr::Tuple(_, span)
+            | Expr::Binary(_, _, _, span) => *span,
         }
     }
 }
