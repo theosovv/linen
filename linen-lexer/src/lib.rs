@@ -102,7 +102,7 @@ pub enum Token {
     Int(i64),
     #[regex(r"[0-9]+\.[0-9]*([eE][+-]?[0-9]+)?", |lex| lex.slice().parse().ok())]
     Float(f64),
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| {
+    #[regex("\"([^\"\\\\]|\\\\.)*\"", |lex| {
         let s = lex.slice();
         Some(s[1..s.len()-1].to_string())
     })]
@@ -111,6 +111,10 @@ pub enum Token {
     // Identifiers (including `_`)
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
+
+    // Block comments (skipped manually in lex())
+    #[regex(r"\{-(?:[^-]|-[^}])*-\}")]
+    BlockComment,
 }
 
 /// A token with its source span.
@@ -128,6 +132,10 @@ pub fn lex(input: &str) -> Result<Vec<SpannedToken>, linen_core::error::LexError
     while let Some(result) = lexer.next() {
         let span = Span::new(lexer.span().start, lexer.span().end);
         match result {
+            Ok(Token::BlockComment) => {
+                // Skip block comments
+                continue;
+            }
             Ok(token) => tokens.push(SpannedToken { token, span }),
             Err(()) => {
                 let ch = input.chars().nth(span.start).unwrap_or('\0');
