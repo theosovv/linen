@@ -8,6 +8,7 @@ pub mod ffi;
 pub mod filters;
 pub mod graph;
 pub mod io;
+pub mod mix;
 pub mod oscillators;
 pub mod traits;
 

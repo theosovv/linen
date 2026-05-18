@@ -13,6 +13,16 @@ pub trait SignalNode {
     fn next_sample(&mut self, t: u64, sr: f32) -> f32;
 }
 
+/// A constant signal node (for fixed frequencies, DC offsets, etc.).
+pub struct ConstNode(pub f32);
+
+impl SignalNode for ConstNode {
+    #[inline]
+    fn next_sample(&mut self, _t: u64, _sr: f32) -> f32 {
+        self.0
+    }
+}
+
 /// Sample rate constants.
 pub const SAMPLE_RATE_44K: f32 = 44100.0;
 pub const SAMPLE_RATE_48K: f32 = 48000.0;

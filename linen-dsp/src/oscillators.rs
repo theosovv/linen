@@ -1,25 +1,40 @@
 //! Oscillator implementations for Linen DSP runtime.
 
-use crate::traits::SignalNode;
+use crate::traits::{ConstNode, SignalNode};
 use std::f32::consts::PI;
 
 /// Sine wave oscillator with phase accumulator.
+///
+/// Frequency can be a constant or driven by another signal node (FM synthesis).
 pub struct SinOsc {
-    freq: f32,
+    freq: Box<dyn SignalNode>,
     phase: f32,
 }
 
 impl SinOsc {
+    /// Create a sine oscillator with a constant frequency.
     pub fn new(freq: f32) -> Self {
+        Self {
+            freq: Box::new(ConstNode(freq)),
+            phase: 0.0,
+        }
+    }
+
+    /// Create a sine oscillator with a modulated frequency.
+    pub fn with_modulator(freq: Box<dyn SignalNode>) -> Self {
         Self { freq, phase: 0.0 }
     }
 }
 
 impl SignalNode for SinOsc {
     #[inline]
-    fn next_sample(&mut self, _t: u64, sr: f32) -> f32 {
-        self.phase += self.freq * 2.0 * PI / sr;
-        self.phase.sin()
+    fn next_sample(&mut self, t: u64, sr: f32) -> f32 {
+        let sample = self.phase.sin();
+        let freq_sample = self.freq.next_sample(t, sr);
+        self.phase += freq_sample * 2.0 * PI / sr;
+        // Keep phase bounded to avoid floating-point drift
+        self.phase %= 2.0 * PI;
+        sample
     }
 }
 
