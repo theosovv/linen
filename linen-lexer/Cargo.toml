@@ -1,0 +1,15 @@
+[package]
+name = "linen-lexer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Lexer for the Linen programming language"
+
+[dependencies]
+logos = "0.14"
+linen-core = { path = "../linen-core" }
+
+[dev-dependencies]

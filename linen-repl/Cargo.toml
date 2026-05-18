@@ -1,0 +1,23 @@
+[package]
+name = "linen-repl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Interactive REPL for the Linen programming language"
+
+[[bin]]
+name = "linen-repl"
+path = "src/main.rs"
+
+[dependencies]
+rustyline = "13.0"
+clap = { version = "4.4", features = ["derive"] }
+linen-core = { path = "../linen-core" }
+linen-lexer = { path = "../linen-lexer" }
+linen-parser = { path = "../linen-parser" }
+linen-dsp = { path = "../linen-dsp" }
+
+[dev-dependencies]
