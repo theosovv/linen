@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/linen-analyze",
+    "crates/linen-codegen",
+    "crates/linen-ir",
+    "crates/linen-parser",
+]
+resolver = "3"
