@@ -1,0 +1,52 @@
+name: Изменение спецификации
+description: Предложение нового или изменённого языкового/внешнего контракта.
+title: "[Spec] "
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: Текущий контракт
+      description: Разделы SPEC.md и действующее поведение.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемый контракт
+      description: Синтаксис, семантика, diagnostics и граничные случаи без неоднозначностей.
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Причина и альтернативы
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Совместимость
+      description: Затронутые программы, fixtures, CLI flags, коды ошибок и числовые результаты.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: План проверки
+      description: Positive, negative, boundary, regression и compatibility tests; независимые oracles.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: process
+    attributes:
+      label: Процесс
+      options:
+        - label: Понимаю, что реализация начинается только после согласования и обновления SPEC.md/changelog.
+          required: true
+        - label: Нетривиальное архитектурное решение будет оформлено отдельным ADR.
+          required: false

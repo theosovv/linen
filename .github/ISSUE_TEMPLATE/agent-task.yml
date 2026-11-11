@@ -1,0 +1,70 @@
+name: Spec-driven задача для ИИ-агента
+description: Небольшая задача на тесты, ревью или явно разрешённый бойлерплейт.
+title: "[Task] "
+body:
+  - type: input
+    id: stage
+    attributes:
+      label: Этап
+      description: Номер и название текущего этапа из SPEC.md.
+      placeholder: "1 — Lexer, parser и синтаксические diagnostics"
+    validations:
+      required: true
+
+  - type: textarea
+    id: specification
+    attributes:
+      label: Требования спецификации
+      description: Перечислите разделы SPEC.md, конкретные инварианты и связанные ADR.
+    validations:
+      required: true
+
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача и ожидаемый результат
+      description: Опишите одно проверяемое изменение и его нецели.
+    validations:
+      required: true
+
+  - type: textarea
+    id: allowlist
+    attributes:
+      label: Allowlist файлов
+      description: Без allowlist действует режим read-only + tests.
+      placeholder: "tests/lexer.rs\nfixtures/invalid/"
+    validations:
+      required: true
+
+  - type: textarea
+    id: oracles
+    attributes:
+      label: Проверки и независимые oracles
+      description: Укажите positive, negative и boundary cases, а также источник каждого expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Обязательные команды
+      value: |
+        cargo fmt --check
+        cargo clippy --all-targets --locked -- -D warnings
+        cargo test --all-targets --locked
+        cargo test --doc --locked
+        RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Ограничения
+      options:
+        - label: Production-код нельзя менять вне allowlist; при необходимости агент должен остановиться и спросить.
+          required: true
+        - label: Новые зависимости, toolchain updates, placeholders и возможности следующих этапов запрещены.
+          required: true
+        - label: Удаление/ослабление тестов, ignore и рост tolerances без отдельного обоснования запрещены.
+          required: true

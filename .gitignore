@@ -1,0 +1,11 @@
+/target/
+**/*.rs.bk
+*.profraw
+
+*.wav
+!fixtures/**/*.wav
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.ln text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.wav binary
+*.png binary
+*.jpg binary

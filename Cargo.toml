@@ -1,0 +1,20 @@
+[package]
+name = "linen"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+description = "An experimental functional language for audio signals"
+license = "MIT"
+repository = "https://github.com/theosovv/linen"
+readme = "README.md"
+keywords = ["audio", "dsp", "language", "compiler"]
+categories = ["compilers", "multimedia::audio"]
+publish = false
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
