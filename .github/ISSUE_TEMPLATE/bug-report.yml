@@ -38,7 +38,7 @@ body:
     id: environment
     attributes:
       label: Окружение
-      description: OS, rustc --version, commit и релевантная конфигурация.
+      description: OS, rustc --version, commit и релевантная конфигурация. Если применимо, укажите logical source name/SourceId; для nondeterminism — повторяется ли результат в другом process и при другом физическом пути.
     validations:
       required: true
 

@@ -3,8 +3,8 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.1.1
-- Дата: 2026-11-11
+- Версия спецификации: 0.2.0
+- Дата: 2026-11-16
 - Рабочее название: **linen**
 - Репозиторий: `linen`
 - Расширение файлов: `.ln`
@@ -12,6 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
+- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A специфицирован, но не реализован; этап 2 начинается после его приёмки
 
 ## 0. Как читать документ
 
@@ -27,6 +28,8 @@
 
 Если спецификация противоречит коду, источником правды является спецификация. Если спецификация противоречит сама себе или не даёт однозначного ответа, агент обязан остановиться и запросить решение, а не выбирать семантику самостоятельно.
 
+[`docs/linen — подготовка к экосистеме.md`](docs/linen%20%E2%80%94%20%D0%BF%D0%BE%D0%B4%D0%B3%D0%BE%D1%82%D0%BE%D0%B2%D0%BA%D0%B0%20%D0%BA%20%D1%8D%D0%BA%D0%BE%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D0%B5.md) дополняет эту спецификацию будущей дорожной картой source libraries, instruments, presets, packages и device artifacts. Он не заменяет `SPEC.md` и не разрешает реализовывать модульную или пакетную функциональность. Ближайшие обязательные требования из него перенесены в разделы 5, 7 и 9; спорные будущие контракты по-прежнему требуют изменения этой спецификации и ADR.
+
 ### Главные инварианты проекта
 
 1. **Один и тот же `.ln`-файл при одинаковой конфигурации даёт одинаковый по семантике звук независимо от размера аудиоблока.**
@@ -37,6 +40,10 @@
 6. Пользовательский ввод не должен приводить к panic, зависанию или неконтролируемому росту памяти.
 7. Новые этапы не должны ломать программы и тесты предыдущих этапов без явного изменения спецификации и записи в changelog.
 8. Код-агент не изменяет production-код ради того, чтобы заставить тест пройти, если задача была только на тесты.
+9. Tokens, AST, Typed AST, IR и diagnostics сохраняют `SourceSpan` с `SourceId`; идентификатор источника действителен только внутри явной компиляции.
+10. Внутренние стадии компилятора получают загруженные источники и конфигурацию явно и не выполняют файловый, сетевой или консольный I/O.
+11. Одинаковые логические источники, зависимости, конфигурация и явный seed дают детерминированный результат; абсолютные пути, системное время и порядок обхода хеш-таблиц на него не влияют.
+12. Resolved definitions используют типизированные ID в явно заданной области видимости, а не строки в глобальном namespace.
 
 ## 1. Видение
 
@@ -152,7 +159,13 @@ linen run beep.ln --output beep.wav
 - LSP;
 - SIMD;
 - JIT;
-- визуальный workbench.
+- визуальный workbench;
+- многофайловые modules и явные imports/exports;
+- source libraries, instruments и presets как распространяемые артефакты;
+- локальные packages, lockfile, content-addressed cache и remote registry;
+- versioned device packages и embedded distribution.
+
+Последовательность и ограничения экосистемы описаны в `docs/linen — подготовка к экосистеме.md`. Сначала появляются локальные многофайловые projects, затем локальные packages и воспроизводимые offline builds; registry не предшествует module identity и lockfile.
 
 ### 2.4. Явный out of scope ближайших этапов
 
@@ -162,7 +175,10 @@ linen run beep.ln --output beep.wav
 - обобщённый `flatMap`/`join` для сигналов, меняющий граф во время рендера;
 - неявные сетевые, файловые и консольные side effects;
 - криптография, аккаунты, базы данных, серверы и distributed systems;
-- плагины сторонних форматов;
+- плагины сторонних форматов и native dynamic libraries в обычных source packages;
+- install scripts, arbitrary shell commands, автоматическое исполнение кода при установке и сетевые запросы во время graph construction;
+- `linen add/install/publish`, manifest parser, registry, semver resolver и глобальный package cache;
+- стабильный публичный bytecode ABI, общий plugin framework и преждевременный `no_std` runtime;
 - зависимость семантики от GUI.
 
 ## 3. Термины
@@ -172,6 +188,16 @@ linen run beep.ln --output beep.wav
 | Семпл | Одно мгновенное значение аудиосигнала. В VM представлено `f32`. |
 | Sample rate | Количество семплов в секунду. По умолчанию 48 000 Гц. |
 | Аудиоблок | Последовательность семплов, обрабатываемая за один вызов VM. Размер блока не входит в семантику языка. |
+| `SourceId` | Компактный идентификатор источника, уникальный только внутри одной компиляции. Не является package/module ID. |
+| `SourceFile` | Загруженный UTF-8 текст, `SourceId`, логическое имя и line index. |
+| `SourceMap` | Владеющая источниками коллекция одной компиляции; связывает `SourceId` с `SourceFile`. |
+| `SourceSpan` | `SourceId` и полуинтервал байтовых offsets `[start, end)` внутри соответствующего источника. |
+| `CompileSession` | Явный владелец sources и compile configuration; позднее включает diagnostics и symbol storage, когда эти стадии существуют. |
+| `BindingId` / `FunctionId` / `BuiltinId` | Типизированные идентификаторы resolved definitions в явно заданной области, а не глобальные строки. |
+| `NodeOrigin` | Происхождение IR-узла: primary `SourceSpan` и, после появления inlining, цепочка call spans либо явный merged/unknown origin. |
+| Source library | Исходные функции, типы и константы, компилируемые вместе с программой. Не native binary и не device package. |
+| Instrument / Preset | Законченный entry point с параметрами/capabilities и отдельные значения параметров по stable IDs. Будущие артефакты. |
+| Device package | Отдельно версионируемый проверенный bytecode с VM/capability/resource metadata для embedded VM. Будущий артефакт. |
 | `Float` | Числовое значение этапа построения графа либо скалярное значение runtime. Во frontend литералы сначала представляются как `f64`. |
 | `Sig` | Псевдоним `Signal<Float>` в целевом языке; в ранних этапах — мономорфный аудиосигнал. |
 | `Event<T>` | Дискретное событие со значением и временем. Будущая возможность. |
@@ -188,7 +214,7 @@ linen run beep.ln --output beep.wav
 | Probe | Именованная точка наблюдения за сигналом. Будущая возможность. |
 | Voice | Экземпляр инструмента с собственным состоянием и временем жизни. Будущая возможность. |
 | Рендер | Вычисление программы на заданном интервале времени и запись результата. |
-| Совместимость | Сохранение поведения программ и диагностических контрактов предыдущих этапов. |
+| Совместимость | Сохранение поведения программ и диагностических контрактов предыдущих этапов. API compatibility и render compatibility рассматриваются отдельно. |
 
 ## 4. Язык linen
 
@@ -250,8 +276,8 @@ render 4s;
 - Неизвестный символ — ошибка лексера, а не silently ignored token. Его primary span охватывает весь UTF-8 code point.
 - Резервированные слова Beep: `let`, `render`, `Float`, `Sig`, `true`, `false`.
 - `out` — контекстно специальное имя верхнеуровневой привязки, а не отдельный token лексера.
-- Для будущей совместимости резервируются: `type`, `match`, `mod`, `use`, `feedback`, `event`, `mut`, `where`.
-- `Span` хранит полуинтервал байтовых offsets `[start, end)`. Диагностика дополнительно вычисляет 1-based line и column; column считает Unicode scalar values, а не байты. LF и CRLF считаются одним переводом строки, lone CR — whitespace в той же строке, tab — один символ колонки.
+- Для будущей совместимости резервируются: `type`, `match`, `mod`, `use`, `export`, `package`, `from`, `as`, `feedback`, `event`, `mut`, `where`. Это только лексическое резервирование: grammar и семантика declarations/imports/exports не добавляются, а keyword на месте identifier отклоняется обычным `E1100`.
+- `SourceSpan` хранит `SourceId` и полуинтервал байтовых offsets `[start, end)`. Диагностика дополнительно вычисляет 1-based line и column через соответствующий `SourceFile`; column считает Unicode scalar values, а не байты. LF и CRLF считаются одним переводом строки, lone CR — whitespace в той же строке, tab — один символ колонки.
 
 EBNF Beep:
 
@@ -460,27 +486,31 @@ render 4s;
                          │            CLI               │
                          │ check / run / inspect        │
                          └──────────────┬───────────────┘
-                                        │
-                                   SourceText
+                                        │ host boundary: read files
+                                        ▼
+                         SourceFile + logical source name
                                         │
                                         ▼
-                              Lexer → Tokens + Spans
+                    CompileSession: SourceMap + CompileConfig
                                         │
                                         ▼
-                               Parser → AST + Spans
+                           Lexer → Tokens + SourceSpans
+                                        │
+                                        ▼
+                             Parser → AST + SourceSpans
                                         │
                                         ▼
                          Name resolution + Type checking
                                         │
-                                    Typed AST
+                           Typed AST + IDs + SourceSpans
                                         │
                                         ▼
-                              Lowering → Signal IR
+                         Lowering → Signal IR + NodeOrigin
                                         │
                                   IR verifier
                                         │
                                         ▼
-                              Codegen → Bytecode
+                         Codegen → Bytecode + debug origin
                                         │
                                Bytecode verifier
                                         │
@@ -497,6 +527,8 @@ render 4s;
 
 До появления IR и VM допускается короткий путь `Typed AST → naive sample interpreter → WAV`. После появления VM production-путь идёт только через IR и bytecode. Наивный путь сохраняется в test-support как независимый oracle.
 
+`SourceMap` уже на однофайловом пути использует ту же модель, которая позднее поддержит несколько источников. Loading выполняется только на host/project boundary. Resolver получает готовые `SourceFile` и будущие логические module IDs, но не загружает и не скачивает зависимости.
+
 ### 5.2. Принципы архитектуры
 
 1. **Один crate на старте.** Модули разделяют ответственность; workspace из множества crates не создаётся без реальной необходимости.
@@ -504,11 +536,16 @@ render 4s;
 3. **Явные представления.** Tokens, AST, Typed AST, IR и Bytecode — разные типы, а не одна универсальная структура с множеством optional-полей.
 4. **Верификация границ.** После lowering, каждого оптимизационного pass и codegen в test/debug-сборках запускается соответствующий verifier.
 5. **Семантические тесты через библиотеку.** CLI-тесты проверяют только CLI-контракт, а не дублируют весь компилятор.
-6. **Никаких глобальных mutable singletons.** Конфигурация, builtins, состояние VM и diagnostics передаются явно.
-7. **Никаких скрытых fallback.** Ошибочная программа не превращается в тишину, а неизвестная инструкция не игнорируется.
+6. **Никаких глобальных mutable singletons.** Конфигурация, sources, builtins, состояние VM, diagnostics и symbol storage передаются явно. Глобальные interner, текущий файл и random запрещены.
+7. **Никаких скрытых fallback.** Ошибочная программа не превращается в тишину, неизвестный `SourceId` не подменяется другим источником, а неизвестная инструкция не игнорируется.
 8. **Production и test oracle неразделимы по назначению, но разделены по коду.** Differential-тест не должен вычислять ожидаемое значение той же функцией, которую проверяет.
 9. **Оптимизация не меняет семантику.** Для каждого pass существует differential/property suite.
 10. **Сначала корректность, затем скорость.** Любая оптимизация сопровождается доказательством эквивалентности на существующем наборе тестов.
+11. **Source identity сохраняется.** Tokens, AST, Typed AST, IR и diagnostic labels содержат `SourceSpan`; `SourceId` не смешивается с абсолютным путём, module/package identity или адресом Rust-структуры.
+12. **Нет скрытого I/O.** Parser, resolver, type checker, lowering и VM получают in-memory входы и не обращаются к filesystem, environment, current working directory, сети, stdout или системным часам.
+13. **Детерминированный порядок.** Diagnostics и artifacts упорядочиваются явным стабильным ключом; недетерминированный обход `HashMap` не влияет на output.
+14. **Resolved identity вместо строк.** Resolver выдаёт типизированные IDs с явной областью уникальности. Два одинаковых имени в разных будущих модулях не конфликтуют сами по себе.
+15. **Runtime отделён от продуктов.** Verified program и VM не зависят от CLI, WAV, plugin host, display или GPIO; backend подключается снаружи.
 
 ### 5.3. Структура репозитория
 
@@ -517,13 +554,14 @@ linen/
 ├── Cargo.toml
 ├── Cargo.lock
 ├── rust-toolchain.toml
-├── SPEC.md                    # копия актуальной спеки
+├── SPEC.md                    # единственный источник правды
 ├── README.md
 ├── src/
 │   ├── lib.rs                 # небольшой библиотечный facade
 │   ├── main.rs                # только CLI entry point
-│   ├── api.rs                 # check/compile/render высокого уровня
-│   ├── diagnostic.rs          # Diagnostic, Span, коды ошибок
+│   ├── source.rs              # SourceId, SourceFile, SourceMap, SourceSpan
+│   ├── api.rs                 # CompileSession и check/compile/render высокого уровня
+│   ├── diagnostic.rs          # Diagnostic, severity, коды ошибок, source rendering
 │   ├── syntax/
 │   │   ├── mod.rs
 │   │   ├── token.rs
@@ -560,6 +598,7 @@ linen/
 │       └── wav.rs
 ├── tests/
 │   ├── common/mod.rs
+│   ├── source.rs
 │   ├── lexer.rs
 │   ├── parser.rs
 │   ├── sema.rs
@@ -582,51 +621,70 @@ linen/
 │   └── regression/
 ├── benches/
 ├── docs/
+│   ├── linen — подготовка к экосистеме.md
 │   ├── language.md
 │   ├── architecture.md
 │   ├── testing.md
+│   ├── development/
 │   └── adr/
 └── .github/workflows/ci.yml   # либо локальный CI-скрипт без GitHub
 ```
 
-Это целевая карта, а не требование создать все файлы заранее. Пустые модули и placeholder-файлы запрещены: файлы появляются вместе с реальной функциональностью.
+Это целевая карта, а не требование создать все файлы заранее. Пустые модули и placeholder-файлы запрещены: файлы появляются вместе с реальной функциональностью. `source.rs` и `api.rs` создаются на этапе 1A; остальные отсутствующие модули ждут своих этапов.
 
 ### 5.4. Ответственность модулей и разрешённые зависимости
 
 | Модуль | Ответственность | Не должен |
 |---|---|---|
-| `diagnostic` | Span, severity, коды, source rendering | Зависеть от parser, VM и CLI |
-| `syntax` | Tokens, AST, lexer, parser | Проверять типы, строить IR, обрабатывать WAV |
-| `sema` | Names, scopes, builtins, типы, Typed AST | Знать о bytecode и физических аудиобуферах |
-| `ir` | Типизированный DAG, lowering, verifier | Парсить исходник и исполнять инструкции |
-| `bytecode` | Инструкции, codegen, verifier | Содержать DSP-формулы |
-| `dsp` | Числовые алгоритмы и state transitions | Знать о lexer/parser/CLI |
-| `vm` | Registers, buffers, dispatch, node state | Принимать решения о типах исходного языка |
+| `source` | Source identity, loaded text, logical names, line index | Открывать файлы, знать о parser/packages или назначать module identity |
+| `diagnostic` | Diagnostic, severity, коды, source rendering | Зависеть от parser, VM и CLI; выбирать источник по строковому имени |
+| `syntax` | Tokens, AST, lexer, parser, SourceSpans | Проверять типы, строить IR, обрабатывать WAV или выполнять I/O |
+| `sema` | Resolved IDs, scopes, builtin descriptors, типы, Typed AST | Знать о bytecode/буферах, загружать файлы или использовать строку как глобальную identity |
+| `ir` | Типизированный DAG, NodeOrigin, lowering, verifier | Парсить исходник и исполнять инструкции |
+| `bytecode` | Инструкции, codegen, verifier, optional debug origin | Содержать DSP-формулы или объявлять преждевременный stable ABI |
+| `dsp` | Числовые алгоритмы и state transitions | Знать о lexer/parser/CLI/host I/O |
+| `vm` | Registers, buffers, dispatch, node state | Принимать решения о типах исходного языка или зависеть от WAV/plugin host |
 | `render` | Цикл рендера, WAV, runtime diagnostics | Изменять семантику узлов |
-| `api` | Удобная композиция стадий | Дублировать логику стадий |
-| `main` | Args, exit codes, файлы | Содержать логику компилятора |
+| `api` | CompileSession, удобная композиция стадий | Дублировать логику стадий или скрывать глобальное состояние |
+| `main` | Args, exit codes, файлы, host boundary | Содержать логику компилятора |
 
 Разрешённая цепочка зависимостей:
 
 ```text
-diagnostic ← syntax ← sema ← ir ← bytecode ← vm ← render ← api ← main
+source ← diagnostic ← syntax ← sema ← ir ← bytecode ← vm ← render ← api ← main
 
-dsp → vm
+dsp ← vm
 ```
 
 `dsp` используется VM, а не IR. IR хранит только операцию и её типовую сигнатуру. Общие примитивы вроде `NodeId` должны принадлежать конкретному слою, а не выноситься в бесконечный `utils.rs`.
 
-### 5.5. Typed AST
+### 5.5. Typed AST, resolved IDs и builtins
 
 Typed AST сохраняет структуру исходника и добавляет:
 
-- resolved binding ID вместо поиска по строке;
+- `BindingId` конкретной локальной/глобальной привязки вместо повторного поиска по строке;
 - тип каждого выражения;
-- resolved builtin/function ID;
-- исходный `Span`;
+- resolved `BuiltinId`/`FunctionId`;
+- исходный `SourceSpan`;
 - явную операцию `LiftFloatToSig`, вставленную type checker.
 
-Неявные преобразования не должны восстанавливаться lowering по догадке: они уже явно присутствуют в Typed AST.
+Неявные преобразования не должны восстанавливаться lowering по догадке: они уже явно присутствуют в Typed AST. ID уникален в явно заданной области компиляции, не является адресом Rust-структуры или random UUID и не влияет на звук через порядок обхода. Строковое имя остаётся частью lookup и diagnostics. Будущий fully-qualified symbol строится из логического module/package ID и локального имени, а не из абсолютного пути.
+
+Для builtins используется статическая таблица descriptors, а не unrelated `match` с повторным перечислением сигнатур:
+
+```text
+BuiltinDescriptor
+  id: BuiltinId
+  name
+  signature
+  purity/determinism class
+  statefulness
+  required capabilities
+  resource model
+  documentation name
+```
+
+На этапе 2 обязательны ID, имя, сигнатура, purity/determinism, statefulness и documentation name. Capability и resource classification добавляются вместе с соответствующим IR op не позднее этапа 3; до появления limited target не создаётся пустой универсальный enum всех будущих возможностей. Динамически загружаемые Rust builtins не поддерживаются.
 
 ### 5.6. Сигнальный IR
 
@@ -644,7 +702,11 @@ Node
   id: NodeId
   op: NodeOp
   result_type: ValueType
-  span: Option<Span>
+  origin: NodeOrigin
+
+NodeOrigin
+  primary: SourceSpan
+  inlined_from: optional chain of call spans   # появляется с inlining
 
 NodeOp (начальный набор)
   ConstFloat(f64)
@@ -665,7 +727,9 @@ NodeOp (начальный набор)
 - все узлы, кроме явно разрешённых unreachable-узлов будущих passes, достижимы из `output`;
 - `NodeId` стабилен только внутри одной конкретной версии графа;
 - после оптимизирующего pass ID могут измениться;
-- source spans не участвуют в сравнении звука, но используются диагностикой;
+- каждый исходный IR-узел имеет валидный primary `SourceSpan`; origin не влияет на звук;
+- после optimization нельзя сохранять заведомо ложный span: при объединении узлов сохраняется точный origin либо явный merged/unknown origin по правилам соответствующего ADR;
+- source origin используется diagnostics/debug info, но может отсутствовать в compact production bytecode;
 - сериализуемый стабильный формат IR на старте отсутствует.
 
 Verifier возвращает структурированную ошибку. В test/debug-сборках нарушение внутреннего инварианта может стать assertion с понятным сообщением; в library API ошибочный пользовательский ввод никогда не должен доходить до такого assertion.
@@ -692,7 +756,7 @@ Sine          dst_audio, freq        # freq может быть scalar или au
 SetOutput     src_audio
 ```
 
-Физический layout инструкций может меняться вместе с ADR. Семантический контракт важнее текстового disassembly.
+Физический layout инструкций может меняться вместе с ADR. Семантический контракт важнее текстового disassembly. Bytecode не считается стабильным ABI раньше отдельного решения, но любой сохраняемый формат имеет явную bytecode/VM version. Debug artifact может связывать инструкцию/runtime error/probe с `NodeOrigin`; stripping debug info не меняет звук.
 
 Правила VM:
 
@@ -705,6 +769,7 @@ SetOutput     src_audio
 - steady-state `render_into` не выделяет память и не обращается к файловой системе, stdout, сети и системным часам;
 - `reset()` сбрасывает регистры при необходимости и обязательно возвращает всё node state в начальное состояние;
 - VM не использует размер текущего блока для изменения алгоритма, кроме выбора эквивалентного vectorized/scalar пути;
+- VM core не импортирует CLI и не знает о WAV, VST, display, GPIO или конкретном windowing toolkit;
 - любая неподдерживаемая или повреждённая инструкция — ошибка verifier/runtime, не молчаливая тишина.
 
 Скалярный путь `sine(constant)` и сигнальный путь `sine(signal)` могут иметь разные оптимизированные реализации, но обязаны согласовываться в пределах численного допуска.
@@ -723,10 +788,14 @@ render(program, config, Write)
 
 Точные Rust-сигнатуры определяются вручную при реализации. Требования к facade:
 
-- источник и конфигурация передаются явно;
+- простой `check`/`compile` создаёт `CompileSession` с одним источником; source-aware вариант принимает явное logical name и конфигурацию;
+- source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Session-based caller удерживает сам session; unknown `SourceId` на session boundary возвращает typed session error, а не diagnostic с неразрешимым span;
+- `CompileSession` владеет `SourceMap` и `CompileConfig`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery; symbol storage добавляется вместе с resolver, без пустых полей заранее;
+- parser и последующие стадии получают уже загруженный текст/`SourceId` и не открывают файлы;
 - diagnostics не выводятся в stdout из глубины компилятора;
+- renderer разрешает primary span через `SourceMap`; неизвестный источник и невалидный offset являются явной ошибкой, а не поводом выбрать другой источник или вызвать panic;
 - запись WAV принимает `Write`, поэтому тестируется через `Vec<u8>` без временных файлов;
-- CLI является тонкой обёрткой;
+- CLI является тонкой обёрткой и единственным текущим host boundary для чтения `.ln`;
 - внутренние AST/IR не экспортируются как стабильный публичный API без необходимости.
 
 ### 5.9. Стек и зависимости
@@ -759,6 +828,57 @@ render(program, config, Write)
 9. `0009-test-oracles-and-numeric-tolerances.md`.
 10. `0010-real-time-allocation-contract.md` — перед real-time этапом.
 11. `0011-stage-1-parser-limits-and-diagnostics.md`.
+12. `0012-source-map-and-compile-session.md`.
+
+### 5.11. Детерминированная компиляция и случайность
+
+Одинаковые логические входы обязаны давать одинаковый компиляторный результат:
+
+```text
+source files с logical names
++ dependency contents
++ language/config version
++ explicit render seed, когда появляется random
+= deterministic result
+```
+
+Не должны влиять:
+
+- абсолютный путь проекта и current working directory;
+- порядок directory listing;
+- hash randomization и недетерминированный порядок обхода `HashMap`;
+- системное время, timestamp, hostname, locale и текущий пользователь;
+- network availability;
+- адреса Rust-структур, random UUID и случайные `NodeId`.
+
+Перед сериализацией или выводом коллекции diagnostics/artifacts сортируются по явному стабильному ключу. Timestamp не включается в patch artifact по умолчанию. Повторная компиляция проверяется в одном process и в разных processes.
+
+Random/noise получает явный seed и стабильную stream identity по ADR до реализации соответствующего узла. Звук не должен зависеть от `NodeId`, номера инструкции, memory address, inlining, optimization или порядка обхода графа. `SourceId` также не является random seed и не влияет на звук.
+
+### 5.12. Границы будущей экосистемы
+
+Следующие артефакты не смешиваются:
+
+| Артефакт | Основной контракт |
+|---|---|
+| Source library | Исходные функции/типы/константы, компилируемые вместе с программой; совместимость определяется исходным API и lockfile содержимым |
+| Project | Локальные modules, dependencies и main/instrument на desktop compiler |
+| Instrument | Явный entry point, inputs/outputs, parameter descriptors, presets, capabilities, resources и reference render |
+| Preset | Значения параметров по stable parameter IDs и ссылка на совместимый instrument; не меняет граф |
+| Device package | Отдельно версионируемый verified bytecode с VM/capability/resource metadata для ограниченной VM |
+| Native host extension | OS-specific машинный код только в отдельном privileged формате, не в обычном source package |
+
+Различаются **language version**, **bytecode/VM version**, **package version** и **compiler version**. Совпадение чисел не доказывает совместимость. Source library не имеет отдельного stable binary ABI и не считается автоматически пригодной для устройства.
+
+Будущий `ParameterDescriptor` содержит stable parameter ID, display name, тип, default, domain, unit, smoothing policy, group и documentation. Preset ссылается на ID, а не позицию; host automation и hardware controls используют одну модель; изменение smoothing не перестраивает граф и не вызывает allocations в audio steady-state. Annotation syntax и UI сейчас не добавляются.
+
+Capabilities описывают требования runtime, а language features — требования frontend. Каждый новый IR op получает capability classification до появления limited targets. `TargetDescriptor` будущего target задаёт supported VM versions/capabilities, sample rates, nodes, state bytes, voices, delay memory, channels и realtime constraints без разбросанных `if is_embedded`.
+
+Для restricted target resource analysis обязан дать точное значение или доказуемый верхний предел nodes, state slots/bytes, audio buffers, delay memory, voices, event queues и channels. Программа без доказуемого лимита отклоняется diagnostic до исполнения, а не доводится до OOM. Полный resource analysis не входит в Beep, но ресурсы не скрываются в глобальных runtime services.
+
+Обычный source package не имеет install scripts, shell, сетевого или произвольного файлового доступа, native libraries, top-level host side effects и права отключать verifier/limits или менять compiler options проекта. Локальная разработка не требует registry. Порядок будущих этапов: multi-file project → modules/exports → local path packages → manifest → lockfile/content hashes → reproducible offline builds/cache → read-only registry → publishing → device distribution.
+
+API compatibility и render compatibility проверяются отдельно. Изменение DSP algorithm, random streams, event ordering, smoothing или optimizer behavior не маскируется под internal refactor; instrument фиксирует dependencies, reference render и явные числовые tolerances. Подробные roadmap, package security и test matrix находятся в документе подготовки к экосистеме и не разрешают реализацию раньше отдельных этапов.
 
 ## 6. Внешние контракты
 
@@ -787,8 +907,9 @@ linen inspect bytecode input.ln
 - успешный `check` ничего не печатает;
 - успешный `run` печатает короткий report: output path, samples, sample rate, duration;
 - diagnostics идут в stderr, machine-readable output и `inspect` — в stdout;
-- на этапе 1 `check` выполняет только lexer, parser и структурные проверки из §4.3; ошибка исходника даёт exit code `1`, ошибка использования или чтения UTF-8 файла — exit code `2` и `E5000`;
-- человекочитаемая syntax diagnostic содержит код, имя файла и 1-based line/column primary span; полное оформление не является стабильным snapshot-контрактом;
+- на этапах 1 и 1A `check` выполняет только lexer, parser и структурные проверки из §4.3; ошибка исходника даёт exit code `1`, ошибка использования или чтения UTF-8 файла — exit code `2` и `E5000`;
+- человекочитаемая syntax diagnostic содержит код, logical source name и 1-based line/column primary span; однофайловый CLI использует `file_name`, а не absolute/canonical path. Файловая `E5000` может содержать фактический путь как host I/O diagnostic. Полное оформление не является стабильным snapshot-контрактом;
+- package/module commands не добавляются до отдельных экосистемных этапов;
 - человекочитаемый `inspect` не является стабильным snapshot-контрактом, если явно не указано обратное;
 - `run` сначала пишет во временный файл в той же директории и переименовывает только после успешного завершения;
 - после ошибки не остаётся видимого частичного `.wav`;
@@ -813,10 +934,12 @@ Diagnostic содержит:
 severity: Error | Warning | Note
 code: стабильная строка E####
 message: короткое основное сообщение
-primary: Span + пояснение
-secondary: ноль или более связанных spans
+primary: SourceSpan + пояснение
+secondary: ноль или более связанных SourceSpans
 notes: дополнительные подсказки
 ```
+
+Каждый label сохраняет `SourceId`; offsets интерпретируются только внутри этого источника. `SourceMap` связывает span с `SourceFile` и его logical name. Одинаковые offsets и одинаковые logical names в разных synthetic sources не смешивают diagnostics. Lookup/rendering неизвестного ID или offset вне UTF-8/source boundaries возвращает явную ошибку, а не panic или silently selected source.
 
 Категории кодов:
 
@@ -855,9 +978,9 @@ notes: дополнительные подсказки
 
 После появления кода его смысл нельзя незаметно переиспользовать для другой ошибки. Точный текст можно улучшать, но snapshot обновляется осознанно и отдельным изменением.
 
-Lexer и parser этапа 1 завершаются на первой ошибке без recovery. Primary span выбирается детерминированно:
+Lexer и parser этапов 1 и 1A завершаются на первой ошибке без recovery. Primary `SourceSpan` выбирается детерминированно:
 
-- `E1100` — неожиданный token; на EOF — пустой span в конце исходника;
+- `E1100` — неожиданный token, включая token с `SourceId`, отличным от ожидаемого в source-aware arbitrary token stream; на EOF — пустой span в конце соответствующего исходника;
 - `E1101` — пустой span в начале token, на месте которого ожидался `;`, либо в EOF;
 - `E1102` — открывающий token, который требует превысить лимит вложенности;
 - `E1103` — token, с которого начинается AST-узел сверх лимита;
@@ -865,7 +988,7 @@ Lexer и parser этапа 1 завершаются на первой ошибк
 - отсутствующий `out` — `E2002` с primary span keyword финального `render`;
 - повторный `out` — `E2003` с primary span второго идентификатора `out` и secondary span первого.
 
-Структурные проверки выполняются после синтаксического разбора; сначала проверяется наличие и положение `render`, затем наличие и уникальность `out`. Поэтому пустой файл даёт `E2004`, а не `E2002`.
+Структурные проверки выполняются после синтаксического разбора; сначала проверяется наличие и положение `render`, затем наличие и уникальность `out`. Поэтому пустой файл даёт `E2004`, а не `E2002`. Этот порядок и повторный результат не зависят от source physical path или hash randomization. Перед recovery/несколькими diagnostics их ordering получает отдельный явный контракт.
 
 ### 6.3. WAV
 
@@ -907,16 +1030,23 @@ deterministic: true
 
 | Контракт | Уровень стабильности |
 |---|---|
-| Синтаксис уже реализованных программ | Не ломать без изменения спеки и changelog |
+| Синтаксис уже реализованных программ | Не ломать без изменения спеки и changelog; резервирование четырёх слов в 0.2.0 — задокументированный break |
 | Типовые правила | Не ослаблять/усиливать неявно |
 | Коды diagnostics | Стабильны после введения |
+| `SourceId` | Стабилен только внутри одной компиляции; не глобальный package/module ID |
+| Byte offsets и диагностический смысл `SourceSpan` | Стабильны; Source identity обязательна |
+| Порядок diagnostics/artifacts | Детерминирован по явному контракту |
 | Точное оформление diagnostics | Можно улучшать с осознанным snapshot update |
 | CLI flags уже реализованных команд | Не переименовывать без changelog |
 | WAV PCM16 conversion | Стабилен |
-| Внутренние Rust-структуры | Можно рефакторить при сохранении поведения |
+| Внутренние Rust-структуры | Нестабильны; можно рефакторить при сохранении внешнего поведения |
 | Текстовый IR/bytecode inspect | Нестабилен до отдельного контракта |
-| Порядок NodeId после оптимизаций | Нестабилен |
+| Сохраняемый bytecode | Не stable ABI; формат и VM version явны с первой persisted версии |
+| Language/VM/package/compiler versions | Независимы; совпадение номеров не означает совместимость |
+| Порядок NodeId после оптимизаций | Нестабилен и не является random stream identity |
 | Точные битовые значения `sin` на всех платформах | Не гарантируются; используются числовые допуски |
+
+API compatibility и render compatibility не подменяют друг друга: успешная компиляция пакета не доказывает сохранение звука, а совпадение render не отменяет source API contract.
 
 ## 7. Стратегия тестирования
 
@@ -935,24 +1065,40 @@ deterministic: true
 
 | Слой | Что проверяет | Основной oracle |
 |---|---|---|
-| Lexer unit | Tokens, spans, malformed input | Явно перечисленные tokens/spans |
-| Parser unit | Структура выражений, приоритеты, ошибки | Семантические assertions по AST |
-| Sema unit | Names, scopes, типы, lift, сигнатуры | Явно ожидаемый тип/код ошибки |
-| Diagnostics golden | Код, primary span, текст | Отобранные snapshots |
-| IR verifier | Неверные ссылки, типы, циклы | Вручную повреждённые графы |
-| Bytecode verifier | Неверные registers, arity, state | Вручную повреждённые программы |
+| SourceMap unit | Source identity, logical names, line index, `SourceSpan` | Явно созданные synthetic sources и offsets |
+| Lexer unit | Tokens, `SourceSpan`, malformed input | Явно перечисленные tokens/spans |
+| Parser unit | Структура выражений, приоритеты, ошибки, единый SourceId | Семантические assertions по AST |
+| Sema unit | Resolved IDs, scopes, типы, lift, сигнатуры, builtin descriptors | Явно ожидаемый тип/ID/код ошибки |
+| Diagnostics golden | Код, SourceId, primary byte span, текст | Отобранные snapshots и явные vectors |
+| Deterministic compilation | Повторные diagnostics/artifacts в одном и разных processes | Байтовое/структурное равенство при одинаковых logical inputs |
+| IR verifier | Неверные ссылки, типы, циклы, origin | Вручную повреждённые графы |
+| Bytecode verifier | Неверные registers, arity, state, versions | Вручную повреждённые программы |
 | DSP numerical | Семплы, частота, RMS, спектр, state | Аналитические значения и независимые формулы |
 | VM contract | Исполнение, reset, errors | Явные векторы и reference interpreter |
 | Differential | AST interpreter против VM | Независимый reference |
 | Property | Инварианты на множестве входов | Математическое свойство |
 | WAV unit/integration | Header, little-endian, quantization, length | Независимо рассчитанные байты |
-| CLI integration | Args, streams, exit codes, atomic output | Запуск binary |
+| CLI integration | Args, streams, exit codes, atomic output, logical source name | Запуск binary |
 | Compatibility | Все программы прошлых этапов | Зафиксированные контракты |
 | Regression | Каждый исправленный bug | Минимальный reproducer |
 | Fuzz | Отсутствие panic/hang/OOM на malformed input | Инвариант безопасного завершения |
+| Capability/resource | Classification, static bounds, target rejection до execution | Явная feature matrix и независимо посчитанный bound |
 | Benchmark | Производительность и allocations | Отдельный harness, не flaky CI assertion |
 
 ### 7.3. Обязательные тесты Beep
+
+#### Источники и детерминированные diagnostics
+
+- один `SourceFile` проходит через ту же `SourceMap`-модель, что и несколько synthetic sources;
+- два источника с одинаковым logical name и одинаковыми offsets различаются по `SourceId`;
+- ID выдаются детерминированно внутри session и не используются как глобальные package/module IDs;
+- пустой, обычный и EOF `SourceSpan`, reversed offsets, unknown `SourceId`, offset вне source и не-UTF-8 boundary;
+- Unicode scalar columns, LF, CRLF, lone CR и tab через line index;
+- primary diagnostic renderer выбирает источник по ID и явно сообщает о невалидной связи без panic;
+- lexer/parser получают in-memory source и явный `SourceId`; arbitrary tokens из другого источника дают детерминированный `E1100`, а не смешанный span или panic;
+- одинаковый `check` повторяется в одном process и в разных processes с одинаковым результатом и порядком diagnostics;
+- физический absolute path не попадает в structured semantic artifact; однофайловый CLI показывает logical `file_name`;
+- текущие compiler stages не содержат filesystem, network, environment, system-time и current-directory calls.
 
 #### Лексер
 
@@ -963,7 +1109,9 @@ deterministic: true
 - durations: `1ms`, `2s`, `0.5s`;
 - отсутствие пробела между числом и буквой вне duration;
 - unknown ASCII и non-ASCII символ;
-- корректные byte spans и line/column;
+- корректные `SourceId`, byte spans и line/column;
+- все reserved words, включая `export`, `package`, `from`, `as`; identifiers `exported`, `package1`, `from_`, `as2` остаются identifiers;
+- новый reserved word на месте имени даёт `E1100` с primary span keyword;
 - унарный минус как отдельный token;
 - отсутствие бесконечного цикла на malformed token.
 
@@ -979,7 +1127,8 @@ deterministic: true
 - `render` не на последнем месте;
 - отсутствующий `render`;
 - отсутствующий и повторный `out`;
-- выражение на верхнем уровне вне `let`.
+- выражение на верхнем уровне вне `let`;
+- все AST/declaration/expression spans сохраняют исходный `SourceId`, включая EOF и synthetic token streams.
 
 #### Типы и имена
 
@@ -995,7 +1144,10 @@ deterministic: true
 - неверная arity;
 - `out` с аннотацией `Float` и несовместимым выражением;
 - деление константы на ноль;
-- нулевая, отрицательная, переполненная и нечисловая длительность.
+- нулевая, отрицательная, переполненная и нечисловая длительность;
+- одинаковые строки в разных scopes получают разные `BindingId`, а повторное использование определения сохраняет ID;
+- `sine` имеет полный базовый `BuiltinDescriptor`, а Typed AST ссылается на `BuiltinId`, не выполняя повторный строковый resolution;
+- каждый Typed AST node сохраняет валидный `SourceSpan`.
 
 #### Числовая семантика
 
@@ -1077,7 +1229,10 @@ Reference interpreter:
 Минимальные свойства:
 
 - лексер на произвольном UTF-8/byte input либо завершается tokens, либо diagnostic; никогда не зацикливается и не паникует;
-- parser не паникует на произвольной последовательности tokens;
+- parser не паникует на произвольной последовательности tokens, включая отсутствие EOF и смешанные `SourceId`; чужой источник даёт детерминированный `E1100`;
+- одинаковые logical sources/config дают одинаковые diagnostics/artifacts в одном и разных processes независимо от physical path и hash randomization;
+- смена session-local `SourceId` без изменения logical input не меняет языковую семантику или звук;
+- каждый созданный lexer/parser/lowered `SourceSpan` разрешается в исходный UTF-8 source и имеет правильный `SourceId`;
 - `a + b` эквивалентно `b + a` для конечных Float в допустимом диапазоне;
 - `a * 1` эквивалентно `a`, `a + 0` эквивалентно `a` с оговорками IEEE 754 для signed zero/NaN;
 - скобки не меняют результат уже разобранного выражения;
@@ -1147,7 +1302,9 @@ abs(actual - expected) <= abs_tol + rel_tol × abs(expected)
 - Каждый тест проверяет конкретное требование спеки.
 - Ожидаемое значение рассчитывается независимо или задано явно.
 - Проверяются как нормальные, так и граничные случаи.
-- Для diagnostic проверяются код и primary span, а не только факт наличия ошибки.
+- Для diagnostic проверяются код, `SourceId` и primary byte span, а не только факт наличия ошибки.
+- Multi-source tests используют synthetic in-memory sources; одинаковые logical names не служат source identity.
+- Повторный результат проверяется в одном и разных processes; в semantic artifacts не попадают absolute paths, timestamps и недетерминированный порядок коллекций.
 - Для DSP проверяется несколько характеристик, если одной недостаточно.
 - Тесты не зависят от текущего времени, случайного seed без фиксации, сети и внешних аудиофайлов.
 - Нельзя добавлять `#[ignore]`, удалять падающие тесты или уменьшать генератор ради зелёного CI.
@@ -1161,23 +1318,26 @@ abs(actual - expected) <= abs_tol + rel_tol × abs(expected)
 
 1. В спеке зафиксированы сигнатура, типы, начальное состояние, update на семпл, edge cases и поведение при NaN/Inf.
 2. Сначала добавлены числовые векторы и отрицательные type tests.
-3. Builtin зарегистрирован в `sema/builtins`; синтаксис вызовов не дублируется для каждого узла.
-4. Добавлены IR op и проверки verifier.
-5. Добавлены bytecode op/codegen/verifier, если узел уже не выражается существующими операциями.
-6. Реализовано состояние и block execution.
-7. Добавлен независимый reference oracle.
-8. Проверены block sizes, reset, длинный рендер и граничные параметры.
-9. Добавлены compatibility fixture и документация.
-10. Все предыдущие тесты пройдены без изменения expected.
+3. Builtin получает `BuiltinId` и полный для текущего этапа descriptor; type checker и documentation используют одну сигнатуру.
+4. Для узла определены purity/determinism, statefulness, runtime capability и resource model в объёме текущего этапа.
+5. Добавлены IR op, валидный `NodeOrigin` и проверки verifier.
+6. Добавлены bytecode op/codegen/verifier, если узел уже не выражается существующими операциями.
+7. Реализовано состояние и block execution без скрытых host services.
+8. Добавлен независимый reference oracle.
+9. Проверены block sizes, reset, длинный рендер и граничные параметры.
+10. Random/noise узел дополнительно получает ADR о seed и stable stream identity, независимой от NodeId/inlining/optimization.
+11. Добавлены compatibility fixture, render regression и документация; API и render compatibility рассмотрены отдельно.
+12. Все предыдущие тесты пройдены без изменения expected.
 
 #### Новый синтаксис
 
 1. Обновлены EBNF, приоритеты, reserved words и примеры в спеке.
 2. Добавлены lexer/parser positive и negative tests.
-3. Проверены spans и diagnostics.
-4. Описаны типовые правила и lowering.
-5. Старые fixtures разбираются без изменений.
-6. Добавлены malformed-input и property cases.
+3. Проверены `SourceId`, byte spans, diagnostics и их детерминированный порядок.
+4. Описаны типовые правила, resolved IDs и lowering/origin.
+5. Старые fixtures разбираются без изменений, кроме отдельно задокументированного contract break.
+6. Добавлены malformed-input, multi-source и property cases.
+7. Резервирование слова без реализации grammar не добавляет declarations, imports, exports или package semantics попутно.
 
 #### Новый optimization pass
 
@@ -1185,8 +1345,10 @@ abs(actual - expected) <= abs_tol + rel_tol × abs(expected)
 2. Доказано, какие инварианты сохраняются.
 3. Есть differential suite против неоптимизированного графа.
 4. Случайные графы покрывают комбинации узлов.
-5. Запрещено «исправлять» ожидаемый звук без объяснения численной разницы.
-6. Бенчмарк отделён от функциональной приёмки.
+5. Origin остаётся точным либо явно merged/unknown, но не заведомо ложным.
+6. Random streams и diagnostics не зависят от новых NodeId, порядка обхода или удаления debug info.
+7. Запрещено «исправлять» ожидаемый звук без объяснения численной разницы.
+8. Бенчмарк отделён от функциональной приёмки.
 
 ## 8. Разделение работы: человек и код-агенты
 
@@ -1303,18 +1465,17 @@ Production-код менять запрещено.
 
 ### 8.8. Общие команды проверки
 
-Набор появляется постепенно вместе с функциональностью:
+Базовый набор:
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo test --test compatibility
-cargo test --test differential
-cargo test --test properties
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --all-targets --locked
+cargo test --doc --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 ```
 
-Долгие fuzzing и benchmarks не должны блокировать каждый небольшой шаг, но запускаются перед завершением соответствующего этапа.
+По мере появления реальных suites добавляются `cargo test --test compatibility --locked`, `cargo test --test differential --locked` и `cargo test --test properties --locked`; несуществующие targets заранее не вызываются. Source/determinism suites обязательны там, где затронуты соответствующие инварианты. Долгие fuzzing и benchmarks не должны блокировать каждый небольшой шаг, но запускаются перед завершением соответствующего этапа.
 
 ## 9. Поэтапный план реализации
 
@@ -1384,13 +1545,53 @@ cargo test --test properties
 - parser не паникует на fuzz/property corpus;
 - нет implementation type checking или звука «попутно».
 
+### Этап 1A — SourceMap и явный контекст компиляции
+
+**Статус:** специфицирован, не реализован. Обязателен перед этапом 2. Подробный контракт: `docs/development/stages/stage-01a-ecosystem-foundation.md`; архитектурное решение: ADR 0012.
+
+**Цель:** устранить однофайловые ограничения завершённых этапов 0–1 до появления Typed AST и IR, не реализуя модульную или пакетную систему.
+
+**Production:**
+
+- добавить `SourceId`, `SourceFile`, `SourceMap`, `SourceSpan` и line index в базовый `source` module;
+- перевести tokens, AST и diagnostic labels на `SourceSpan`, сохранив byte offsets и diagnostic codes;
+- явно передавать `SourceId` в lexer/parser; детерминированно отклонять смешанный arbitrary token stream без panic;
+- создать реальный `CompileSession` с `SourceMap` и `CompileConfig`; простой `check` создаёт один in-memory источник;
+- разрешать diagnostics через `SourceMap` и logical source name; unknown source/invalid offsets обрабатывать явно;
+- оставить файловый I/O только в CLI host boundary, использовать logical `file_name` для однофайлового source diagnostic;
+- зарезервировать `export`, `package`, `from`, `as` как token kinds без добавления module/package grammar;
+- гарантировать детерминированный порядок diagnostics и отсутствие влияния absolute path/hash iteration/system time/network.
+
+**Агенту можно:**
+
+- подготовить SourceMap/SourceSpan positive, negative и boundary tests;
+- создать synthetic multi-source и duplicate-logical-name fixtures;
+- проверить распространение `SourceId` через tokens/AST/diagnostics и renderer;
+- добавить repeated-process determinism и logical-path CLI tests;
+- обновить keyword vectors и compatibility fixtures с явно зафиксированным break;
+- провести read-only review скрытого I/O и недетерминированных коллекций.
+
+**DoD:**
+
+- один файл использует ту же `SourceMap`-модель, что и несколько synthetic sources;
+- два независимых `SourceFile` однозначно различаются diagnostics даже при одинаковых logical names и offsets;
+- все tokens, AST nodes и diagnostic labels сохраняют правильный `SourceId`; LF/CRLF/Unicode locations не изменились;
+- parser/lexer/renderer не выполняют I/O и не выбирают источник по имени или absolute path;
+- повторный `check` в одном и разных processes детерминирован;
+- четыре новых keyword получают token/negative tests; остальные старые programs и diagnostic codes сохраняют expected;
+- текущий `check` остаётся fail-fast и не выполняет type checking, name resolution или звук;
+- нет module/package CLI, manifest parser, loader, registry, network, plugins и пустых future abstractions;
+- подробный stage DoD и общий набор проверок выполнены; только после этого начинается этап 2.
+
 ### Этап 2 — Типы, наивный интерпретатор и Beep WAV
 
 **Цель:** первая законченная вертикаль `source → sound`.
 
 **Production:**
 
-- name resolution в порядке объявлений;
+- name resolution в порядке объявлений с `BindingId`, `FunctionId`, `BuiltinId` и явным symbol storage в session;
+- Typed AST с `SourceSpan` и resolved IDs;
+- базовый статический `BuiltinDescriptor` для `sine`;
 - типы `Float` и `Sig`;
 - явный `LiftFloatToSig` в Typed AST;
 - type checking операторов, `sine` и `out`;
@@ -1414,8 +1615,10 @@ cargo test --test properties
 - Beep example создаёт WAV ровно на 96 000 семплов;
 - частота и усиление проверены численно;
 - все обязательные тесты Beep из §7.3 реализованы;
+- Typed AST сохраняет resolved IDs и `SourceSpan`; одинаковые строки в разных scopes не служат глобальной identity;
+- базовый descriptor `sine` полон и используется type checker без дублирования сигнатуры;
 - пользовательская ошибка не вызывает panic;
-- повторный запуск даёт тот же звук;
+- повторный запуск даёт тот же звук и не зависит от физического пути/порядка hash iteration;
 - invalid source не создаёт итоговый WAV;
 - `README` содержит только реально работающий пример.
 
@@ -1425,21 +1628,24 @@ cargo test --test properties
 
 **Production:**
 
-- Typed AST → signal IR;
-- graph и bytecode verifiers;
+- Typed AST → signal IR с валидным `NodeOrigin` у каждого исходного узла;
+- graph и bytecode verifiers, включая проверку origin;
+- capability/resource classification фактически добавленных IR ops в продолжение builtin descriptors;
 - scalar/audio registers;
 - state slots;
-- codegen;
+- codegen и optional debug origin;
 - block VM;
 - переменная длина блока;
 - `reset()`;
 - production WAV renderer переводится на VM;
-- наивный production interpreter удаляется только после полного parity.
+- наивный production interpreter удаляется только после полного parity;
+- любой новый persisted bytecode получает явный format/VM version; stable ABI не объявляется.
 
 **Агенту можно:**
 
 - создать verifier tests с вручную повреждёнными графами и bytecode;
 - написать block-partition и reset tests;
+- проверить валидность `SourceSpan`/`NodeOrigin`, capability coverage и неизменность звука без debug info;
 - расширить differential generator;
 - добавить allocation-counting test harness для steady-state;
 - подготовить disassembly fixtures только для отобранных случаев.
@@ -1451,6 +1657,8 @@ cargo test --test properties
 - block sizes `1`, `3`, `64`, `128`, `256` и случайные partitions дают эквивалентный результат;
 - reset повторяет исходный рендер;
 - verifier отклоняет повреждённые программы до dispatch;
+- каждый исходный IR node имеет валидный origin; удаление debug info не меняет звук;
+- каждый добавленный IR op имеет capability/resource classification в объёме текущих targets, без пустого универсального future enum;
 - steady-state `render_into` не выделяет память;
 - Beep CLI и diagnostics не изменились;
 - benchmark baseline измерен, но не выдаётся за универсальную метрику.
@@ -1461,13 +1669,14 @@ cargo test --test properties
 
 **Production:**
 
-- пользовательские функции с обязательными сигнатурами;
-- lexical scopes;
+- пользовательские функции с обязательными сигнатурами и resolved `FunctionId`;
+- lexical scopes и `BindingId` без глобального строкового namespace;
 - локальные `let`;
 - блоки-выражения с последним выражением;
 - локальный type inference;
 - pipeline desugaring;
 - создание свежего state на каждый вызов;
+- `inlined_from`/call origin для узлов, созданных через вызовы, если lowering использует inlining;
 - запрет recursion и higher-order функций на этом этапе.
 
 **Агенту можно:**
@@ -1483,6 +1692,7 @@ cargo test --test properties
 - два вызова одной функции не делят node state;
 - повторное использование одной `let`-привязки сохраняет sharing;
 - pipeline эквивалентен явному вызову;
+- resolved `FunctionId`/`BindingId` и call/origin chains ссылаются на правильные определения и `SourceSpan`;
 - recursion получает понятную compile error;
 - предыдущие fixtures и block-invariance tests проходят.
 
@@ -1497,7 +1707,7 @@ cargo test --test properties
 - `gain` как именованный builtin или сахар над умножением;
 - stereo output с независимым channel contract;
 - `mix`, `pan` после фиксации сигнатур;
-- детерминированный `noise` только после ADR о seed, алгоритме и numeric vectors;
+- детерминированный `noise` только после ADR о seed, алгоритме, stable `RandomStreamId` и numeric vectors; stream identity не зависит от NodeId, SourceId, memory address, inlining или optimization;
 - PolyBLEP или другой anti-aliasing как отдельный подэтап, не скрытая замена наивного узла.
 
 **Агенту можно:**
@@ -1806,26 +2016,39 @@ cargo test --test properties
 - [ ] Все задачи этапа реализованы без скрытых заглушек.
 - [ ] Добавлены positive, negative и boundary tests.
 - [ ] Regression и compatibility suites зелёные.
+- [ ] `SourceId`/`SourceSpan` сохранены через все существующие stages; multi-source diagnostics не смешиваются.
+- [ ] Нет скрытого I/O, absolute-path identity или зависимости output от hash iteration; repeated-process determinism проверен.
+- [ ] Resolved IDs, builtin metadata, origin, capabilities и resources покрыты в объёме существующих стадий.
 - [ ] Block-invariance и reset проверены там, где есть аудио/state.
 - [ ] Нет новых ignored tests и неоправданного роста tolerances.
 - [ ] Verifiers покрывают новые внутренние инварианты.
 - [ ] Документация содержит только работающие примеры.
 - [ ] Изменения спеки и ADR отражены в changelog.
 - [ ] Агентские изменения ограничены разрешёнными файлами и прошли ревью.
+- [ ] Module/package/registry/plugin функциональность не добавлена преждевременно.
 - [ ] Следующий этап не начат внутри текущего diff.
 
 ## 14. Ближайший практический порядок действий
 
-1. Создать репозиторий и выполнить этап 0.
-2. Вручную реализовать lexer/parser Beep.
-3. До реализации type checker поручить агенту только parser/lexer tests с независимыми expected.
-4. Вручную реализовать типы, наивный `sine` interpreter и WAV.
-5. Поручить агенту аналитические audio tests, WAV tests и CLI tests.
-6. Получить стабильный Beep и только затем начать IR/VM.
-7. Во время VM-этапа основную часть агентской работы направить на reference interpreter, block partitions, reset, verifiers и differential generation.
+1. Этапы 0 и 1 завершены; сохранить их исторические отчёты и исходные проверки.
+2. Человеку реализовать этап 1A по `docs/development/stages/stage-01a-ecosystem-foundation.md` и ADR 0012. Агенту отдельными задачами поручить SourceMap/multi-source/determinism/keyword tests и read-only I/O review.
+3. Выполнить DoD 1A и только затем вручную реализовать типы, resolved IDs, наивный `sine` interpreter и WAV этапа 2.
+4. Поручить агенту type/builtin descriptor tests, аналитические audio tests, WAV tests и CLI tests.
+5. Получить стабильный Beep и только затем начать IR/VM с `NodeOrigin`, capability/resource classification и versioned persisted format, если persistence появится.
+6. Во время VM-этапа основную часть агентской работы направить на reference interpreter, block partitions, reset, origins, verifiers, determinism и differential generation.
+7. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
 8. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.2.0 — 2026-11-16
+
+- Изменение: добавлены Source identity (`SourceId`, `SourceFile`, `SourceMap`, `SourceSpan`), явный `CompileSession`, resolved IDs, builtin descriptors, `NodeOrigin`, deterministic compilation, capability/resource contracts и границы будущих source/package/instrument/device artifacts. Зарезервированы `export`, `package`, `from`, `as`. Добавлен обязательный корректирующий этап 1A перед этапом 2; требования для Typed AST, IR и functions распределены по этапам 2–5.
+- Причина: подготовить раннюю архитектуру к многофайловым projects и экосистеме без преждевременной реализации module loader, manifest, registry, plugins или stable bytecode ABI.
+- Затронутые контракты: §0, §2–§7, §8–§9, §12–§14; особенно лексический контракт §4.3, architecture §5, diagnostics §6.2, test strategy §7 и план §9.
+- Совместимость: миграция внутреннего Rust API `Span` → `SourceSpan` разрешена его нестабильным статусом. После реализации 1A четыре новых reserved words нельзя использовать как identifiers — это сознательный contract break. Текущие fixtures не содержат таких declarations; остальные Beep programs, diagnostic codes, fail-fast order, byte offsets и будущий WAV contract не меняются. Текущий production-код ещё не мигрирован и не объявляется соответствующим 0.2.0.
+- Новые/изменённые тесты: предусмотрены SourceMap/SourceSpan boundaries, duplicate logical names, source-aware lexer/parser/renderer, repeated-process determinism, logical path CLI, keyword/compatibility vectors, resolved IDs/descriptors, NodeOrigin и capability/resource coverage. Это требования к реализации, а не отчёт о уже добавленных tests.
+- Связанный ADR: `0012`; актуализированы ссылки `0001`, `0002`, `0011`.
 
 ### 0.1.1 — 2026-11-11
 

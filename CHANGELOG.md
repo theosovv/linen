@@ -6,6 +6,8 @@
 
 ### Added
 
+- Спецификация 0.2.0 и документ подготовки к модульной/пакетной экосистеме: source libraries, instruments, presets, device packages, capabilities, resources и compatibility rules.
+- Спецификация обязательного корректирующего этапа 1A перед этапом 2 и ADR 0012 о `SourceMap`, `SourceSpan` и `CompileSession`. Production-реализация 1A ещё не выполнялась.
 - Минимальный Rust package с library и binary, зафиксированным toolchain и `Cargo.lock`.
 - Структурированные `Span`, `Diagnostic`, `DiagnosticLabel`, `Severity` и начальные коды ошибок из спецификации.
 - Integration tests diagnostics и инфраструктурного CLI, doctest публичного API.
@@ -24,13 +26,22 @@
 - Diagnostic renderer подписывает primary caret текстом primary label, а не secondary label.
 - Поля `Span` снова приватны, поэтому диапазон нельзя создать в обход проверки `Span::new`.
 
+### Changed
+
+- Спецификация 0.2.0 требует Source identity через tokens/AST/Typed AST/IR, явное владение sources/config, resolved IDs, builtin descriptors, `NodeOrigin`, детерминированный output и разделение language/VM/package versions.
+- `export`, `package`, `from` и `as` зарезервированы в спецификации для будущих modules/packages. Это решение ещё не реализовано в текущем lexer.
+- Правила разработки дополнены корректирующими stage documents для новых требований к завершённым этапам и проверками source/determinism/capability инвариантов.
+
 ### Completed
 
-- Этап 1 завершён: lexer, parser, source diagnostics и `check` прошли приёмку. Следующий этап 2 добавит type checking, name resolution, интерпретатор и WAV.
+- Этап 1 завершён по спецификации 0.1.1: lexer, parser, source diagnostics и `check` прошли приёмку. Перед этапом 2 требуется реализация и приёмка этапа 1A.
 
 ### Compatibility
 
 - Существующие языковые программы и аудиоконтракты отсутствуют; обратной совместимости на этапе 0 пока нет.
 - Инфраструктурные `--help` и `--version` сохранены. Help включает рабочий `check`.
 - `run` и `inspect` не объявлены работающими и не имеют placeholder-реализаций.
-- Изменения спецификации 0.1.1 уточняют ещё не реализованный этап и не ломают существующие `.ln`-программы.
+- Изменения спецификации 0.1.1 уточнили ещё не реализованный на тот момент этап и не ломали существующие `.ln`-программы.
+- Спецификация 0.2.0 сознательно меняет лексический контракт: после реализации 1A четыре новых reserved words нельзя будет использовать как identifiers. В текущих fixtures таких declarations нет; compatibility tests обязаны сохранить остальные программы без изменения expected.
+- Миграция `Span` → `SourceSpan` и source-aware API затрагивает нестабильный внутренний Rust API, а не стабильные diagnostic codes или Beep semantics. Текущий код ещё не мигрирован.
+- Module/package syntax, stable bytecode ABI, registry и device packages не добавлены.
