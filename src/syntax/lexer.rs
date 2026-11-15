@@ -90,12 +90,11 @@ impl<'source> Lexer<'source> {
                 _ => {
                     self.advance();
 
-                    return Err(self
-                        .error(ErrorCode::UnknownCharacter, "unexpected character", ch)
-                        .with_secondary(DiagnosticLabel::new(
-                            Span::empty(self.offset),
-                            "this character is not recognized",
-                        )));
+                    return Err(self.error(
+                        ErrorCode::UnknownCharacter,
+                        "unexpected character",
+                        "this character is not recognized",
+                    ));
                 }
             }
         }
@@ -201,7 +200,6 @@ impl<'source> Lexer<'source> {
     }
 
     fn invalid_number(&mut self) -> Diagnostic {
-        let start = self.start;
         while self
             .peek()
             .is_some_and(|ch| Self::is_identifier_continue(ch) || ch == '.')
@@ -209,20 +207,11 @@ impl<'source> Lexer<'source> {
             self.advance();
         }
 
-        let label = self
-            .source
-            .get(start..self.offset)
-            .expect("the lexer should produce valid label");
-
         self.error(
             ErrorCode::InvalidNumberOrDuration,
             "invalid number or duration",
-            label,
+            "expected a valid number or duration",
         )
-        .with_secondary(DiagnosticLabel::new(
-            Span::empty(self.offset),
-            "the invalid numerical is here",
-        ))
     }
 
     fn is_identifier_continue(ch: char) -> bool {

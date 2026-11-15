@@ -1,8 +1,8 @@
 //! Public library facade for linen.
 //!
 //! The crate provides structured diagnostics and the unstable stage 1 syntax
-//! scaffolding. Lexer and parser entry points are under implementation; audio
-//! rendering APIs will be exposed only when their implementations exist.
+//! API. Audio rendering APIs will be exposed only when their implementations
+//! exist.
 //!
 //! ```
 //! use linen::{Diagnostic, DiagnosticLabel, ErrorCode, Span};

@@ -191,8 +191,8 @@ fn spec_4_3_only_an_identifier_can_be_a_call_target() {
 #[test]
 fn spec_4_3_missing_semicolon_is_e1101_at_the_next_token() {
     let source = include_str!("../fixtures/invalid/stage-01-missing-semicolon.ln");
-    assert_parse_error(source, ErrorCode::MissingSemicolon, Span::empty(10));
-    assert_parse_error("let out = 1", ErrorCode::MissingSemicolon, Span::empty(10));
+    assert_parse_error(source, ErrorCode::MissingSemicolon, Span::empty(12));
+    assert_parse_error("let out = 1", ErrorCode::MissingSemicolon, Span::empty(11));
 }
 
 #[test]
@@ -219,9 +219,9 @@ fn spec_4_3_missing_and_duplicate_out_have_stable_spans() {
     let source = include_str!("../fixtures/invalid/stage-01-duplicate-out.ln");
     let diagnostic = parse(source).expect_err("duplicate out should fail");
     assert_eq!(diagnostic.code(), ErrorCode::MultipleOutputs);
-    assert_eq!(diagnostic.primary().span(), span(13, 25));
+    assert_eq!(diagnostic.primary().span(), span(17, 20));
     assert_eq!(diagnostic.secondary().len(), 1);
-    assert_eq!(diagnostic.secondary()[0].span(), span(13, 25));
+    assert_eq!(diagnostic.secondary()[0].span(), span(4, 7));
 }
 
 #[test]
@@ -290,6 +290,33 @@ fn spec_10_1_ast_node_limit_has_an_explicit_boundary_and_e1103() {
     assert_eq!(diagnostic.code(), ErrorCode::AstNodeLimit);
     assert_eq!(diagnostic.primary().span(), span(13, 19));
     assert_eq!(ParserConfig::default().max_nodes, 10_000);
+}
+
+#[test]
+fn spec_6_2_ast_node_limit_uses_the_expression_start_token() {
+    let binary = include_str!("../fixtures/valid/stage-01-expression-node-limit.ln");
+    parse(binary).expect("the fixture is valid with the default node limit");
+
+    let cases = [
+        (binary, 3),
+        ("let out = 1 * 2; render 1s;", 3),
+        ("let out = -1; render 1s;", 2),
+        ("let out = (1); render 1s;", 2),
+    ];
+
+    for (source, max_nodes) in cases {
+        let diagnostic = parse_with_config(
+            source,
+            ParserConfig {
+                max_depth: 128,
+                max_nodes,
+            },
+        )
+        .expect_err("the composite expression should exceed the node limit");
+
+        assert_eq!(diagnostic.code(), ErrorCode::AstNodeLimit);
+        assert_eq!(diagnostic.primary().span(), span(10, 11));
+    }
 }
 
 #[test]

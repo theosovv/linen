@@ -9,7 +9,7 @@ const HELP: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     "\n",
     "An experimental functional language for audio signals.\n",
-    "The stage 1 syntax checker is under implementation.\n\n",
+    "Checks Beep syntax without type checking or audio rendering.\n\n",
     "Usage:\n",
     "  linen --help\n",
     "  linen --version\n",

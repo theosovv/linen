@@ -5,8 +5,8 @@ use std::fmt::Write;
 /// A half-open range of byte offsets in UTF-8 source text.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Span {
-    pub start: usize,
-    pub end: usize,
+    start: usize,
+    end: usize,
 }
 
 impl Span {
@@ -318,11 +318,6 @@ pub fn render_diagnostic(source_name: &str, source: &str, diagnostic: &Diagnosti
     let primary_message = primary.message();
     let span = diagnostic.primary().span();
     let start = span.start();
-    let secondary = diagnostic.secondary().first();
-    let secondary_message = match secondary {
-        Some(label) => label.message(),
-        None => "",
-    };
 
     let (column, line) = match line_column(source, span.start()) {
         Some(location) => (location.column, location.line),
@@ -346,10 +341,10 @@ pub fn render_diagnostic(source_name: &str, source: &str, diagnostic: &Diagnosti
 
     let mut output = String::new();
 
-    let _ = writeln!(output, "{severity}[{code}]: {message}: '{primary_message}'");
+    let _ = writeln!(output, "{severity}[{code}]: {message}");
     let _ = writeln!(output, "  --> {source_name}:{position}");
     let _ = writeln!(output, "    |");
     let _ = writeln!(output, "  {line} | {source_line}",);
-    let _ = writeln!(output, "    |{}^ {}", " ".repeat(column), secondary_message);
+    let _ = writeln!(output, "    |{}^ {}", " ".repeat(column), primary_message);
     output
 }

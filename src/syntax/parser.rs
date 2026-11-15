@@ -115,19 +115,19 @@ impl<'tokens> Parser<'tokens> {
                 continue;
             }
 
-            if first_out.is_some()  {
+            if let Some(first_out) = first_out {
                 return Err(Diagnostic::error(
                     ErrorCode::MultipleOutputs,
                     "multiple out bindings",
-                    DiagnosticLabel::new(binding.span, &binding.name.name),
+                    DiagnosticLabel::new(binding.name.span, "the second out binding is here"),
                 )
                 .with_secondary(DiagnosticLabel::new(
-                    binding.span,
-                    "the second out binding is here",
+                    first_out,
+                    "the first out binding is here",
                 )));
             }
 
-            first_out = Some(binding.span);
+            first_out = Some(binding.name.span);
         }
 
         if first_out.is_none() {
@@ -156,10 +156,6 @@ impl<'tokens> Parser<'tokens> {
 
     fn peek(&self) -> Option<&'tokens Token> {
         self.tokens.get(self.current)
-    }
-
-    fn previous(&self) -> Option<&'tokens Token> {
-        self.tokens.get(self.current - 1)
     }
 
     fn advance(&mut self) -> Option<&'tokens Token> {
@@ -224,13 +220,11 @@ impl<'tokens> Parser<'tokens> {
 
     fn missing_semicolon(&self, token: Option<&'tokens Token>) -> Diagnostic {
         let span = token.map_or_else(|| self.eof_span(), |token| Span::empty(token.span.start()));
-        let token_kind = &token.expect("expected valid token").kind;
         Diagnostic::error(
             ErrorCode::MissingSemicolon,
             "missing semicolon",
-            DiagnosticLabel::new(span, token_kind.to_string()),
+            DiagnosticLabel::new(span, "expected a semicolon here"),
         )
-        .with_secondary(DiagnosticLabel::new(span, "expected a semicolon here"))
     }
 
     fn span_between(&self, start: Span, end: Span) -> Result<Span, Diagnostic> {
@@ -267,6 +261,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     fn parse_additive(&mut self) -> Result<Expr, Diagnostic> {
+        let start_span = self.span_here();
         let mut expr = self.parse_multiplicative()?;
 
         loop {
@@ -288,6 +283,7 @@ impl<'tokens> Parser<'tokens> {
                     right: Box::new(right),
                 },
                 span,
+                start_span,
             )?;
         }
 
@@ -295,6 +291,7 @@ impl<'tokens> Parser<'tokens> {
     }
 
     fn parse_multiplicative(&mut self) -> Result<Expr, Diagnostic> {
+        let start_span = self.span_here();
         let mut expr = self.parse_unary()?;
 
         loop {
@@ -316,6 +313,7 @@ impl<'tokens> Parser<'tokens> {
                     right: Box::new(right),
                 },
                 span,
+                start_span,
             )?;
         }
 
@@ -337,6 +335,7 @@ impl<'tokens> Parser<'tokens> {
                 operand: Box::new(operand),
             },
             span,
+            minus.span,
         )
     }
 
@@ -455,7 +454,7 @@ impl<'tokens> Parser<'tokens> {
             return Ok(self.advance().expect("semicolon was checked"));
         }
 
-        Err(self.missing_semicolon(self.previous()))
+        Err(self.missing_semicolon(self.peek()))
     }
 
     fn expect_identifier(&mut self) -> Result<Identifier, Diagnostic> {
@@ -490,14 +489,14 @@ impl<'tokens> Parser<'tokens> {
                 let span = token.span;
 
                 self.advance();
-                self.make_expr(ExprKind::Number(value), span)
+                self.make_expr(ExprKind::Number(value), span, span)
             }
             TokenKind::Identifier(value) => {
                 let identifier = Identifier::new(value.clone(), token.span);
                 let span = token.span;
 
                 self.advance();
-                self.make_expr(ExprKind::Identifier(identifier), span)
+                self.make_expr(ExprKind::Identifier(identifier), span, span)
             }
             TokenKind::LeftParen => self.parse_group(),
             _ => Err(self.unexpected_token(Some(token), Some("an expression"))),
@@ -510,7 +509,7 @@ impl<'tokens> Parser<'tokens> {
         let closing = self.expect(TokenKind::RightParen)?;
         let span = self.span_between(opening.span, closing.span)?;
 
-        self.make_expr(ExprKind::Group(Box::new(inner)), span)
+        self.make_expr(ExprKind::Group(Box::new(inner)), span, opening.span)
     }
 
     fn parse_postfix(&mut self) -> Result<Expr, Diagnostic> {
@@ -567,12 +566,20 @@ impl<'tokens> Parser<'tokens> {
         Ok(expr)
     }
 
-    fn make_expr(&mut self, kind: ExprKind, span: Span) -> Result<Expr, Diagnostic> {
+    fn make_expr(
+        &mut self,
+        kind: ExprKind,
+        span: Span,
+        start_span: Span,
+    ) -> Result<Expr, Diagnostic> {
         if self.nodes >= self.config.max_nodes {
             return Err(Diagnostic::error(
                 ErrorCode::AstNodeLimit,
                 "too many nodes in the AST",
-                DiagnosticLabel::new(span, "this expression exceeds the maximum number of nodes"),
+                DiagnosticLabel::new(
+                    start_span,
+                    "this expression exceeds the maximum number of nodes",
+                ),
             ));
         }
 

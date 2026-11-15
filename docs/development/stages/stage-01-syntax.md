@@ -1,6 +1,6 @@
 # Этап 1 — Lexer, parser и синтаксические diagnostics
 
-- Статус: в работе; подготовлены контракты, fixtures, тесты и каркас с явными заглушками.
+- Статус: завершён 2026-11-15; реализация, исправления ревью и все проверки завершены.
 - Источник требований: `SPEC.md` 0.1.1, разделы 4.3, 5.1–5.4, 6.1–6.2, 7.3, 7.6–7.7, 9 (этап 1), 10.1.
 - Связанные ADR: `0001`, `0002`, `0011`.
 
@@ -19,23 +19,18 @@
 
 В этой задаче специально разрешены временные `todo!()` в обозначенных entry points. Это исключение из обычного запрета заглушек не означает готовность этапа или пригодность `check` для использования.
 
-## Фактическое состояние каркаса
+## Фактическое состояние реализации
 
-Реально созданы:
+Реализованы:
 
-- типы `Token`, `TokenKind`, AST, `ParserConfig` и механические constructors;
-- композиция публичных entry points и CLI dispatch для `check`;
-- чтение UTF-8 файла и файловая ошибка `E5000` с exit code `2`;
-- valid/invalid fixtures и contract tests с независимо заданными expected;
-- конфигурация defaults `max_depth = 128`, `max_nodes = 10_000`.
+- типы `Token`, `TokenKind`, AST и `ParserConfig` с defaults `max_depth = 128`, `max_nodes = 10_000`;
+- ручной lexer с UTF-8 byte spans, malformed-literal diagnostics и гарантированным progress;
+- recursive descent parser, структурные проверки `out`/`render` и оба лимита;
+- Unicode/CRLF line/column и source diagnostic renderer;
+- сквозной `linen check`, чтение UTF-8 файла и файловая ошибка `E5000` с exit code `2`;
+- valid/invalid fixtures и contract tests с независимо заданными expected.
 
-Остаются явными заглушками:
-
-- `Lexer::tokenize` в `src/syntax/lexer.rs`;
-- `Parser::parse_program` в `src/syntax/parser.rs`;
-- `line_column` и `render_diagnostic` в `src/diagnostic.rs`.
-
-Следовательно, `lex`, `parse`, `check` и обработка syntax diagnostics в CLI пока достигают `todo!()`. Это известные незавершённые части, а не рабочая функциональность.
+Временные `todo!()` удалены. После ревью исправлены primary spans `E1101`/`E1103`, primary/secondary spans `E2003` и инвариант конструирования `Span`; соответствующие regression-тесты добавлены.
 
 ## Принятый дизайн представлений
 
@@ -90,18 +85,27 @@ Fixtures находятся в `fixtures/valid/stage-01-*.ln` и `fixtures/inval
 
 ## Definition of Done этапа
 
-- [ ] Все примеры Beep разбираются в ожидаемую структуру.
-- [ ] Обязательные lexer/parser cases из `SPEC.md` §7.3 покрыты и проходят.
-- [ ] Diagnostics содержат код и корректный primary span.
-- [ ] CRLF и комментарии не изменяют позиции ошибочно.
-- [ ] Parser не паникует на property corpus и не зависает на malformed input.
-- [ ] Лимиты глубины и узлов работают на границах `N`/`N+1`.
-- [ ] `check` не выполняет type checking, name resolution или звук.
-- [ ] В production нет временных `todo!()` и скрытых fallback.
-- [ ] Полный общий набор проверок проходит без ignored tests.
-- [ ] README описывает только реально работающий `check`.
+- [x] Все примеры Beep разбираются в ожидаемую структуру.
+- [x] Обязательные lexer/parser cases из `SPEC.md` §7.3 покрыты и проходят.
+- [x] Diagnostics содержат код и корректный primary span.
+- [x] CRLF и комментарии не изменяют позиции ошибочно.
+- [x] Parser не паникует на property corpus и не зависает на malformed input.
+- [x] Лимиты глубины и узлов работают на границах `N`/`N+1`.
+- [x] `check` не выполняет type checking, name resolution или звук.
+- [x] В production нет временных `todo!()` и скрытых fallback.
+- [x] Полный общий набор проверок проходит без ignored tests.
+- [x] README описывает только реально работающий `check`.
 
 ## Фактические проверки
+
+После реализации и исправлений ревью локально 2026-11-15:
+
+- `cargo fmt --check` — успешно.
+- `cargo clippy --all-targets --locked -- -D warnings` — успешно, без предупреждений.
+- `cargo test --all-targets --locked` — успешно: 47 integration tests, 0 failed, 0 ignored.
+- `cargo test --doc --locked` — успешно: 1 doctest.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked` — успешно.
+- Ручные запуски `check`: valid Beep завершился с кодом `0` без вывода; missing semicolon дал `E1101` и `2:1`; duplicate `out` дал `E2003` и `2:5`.
 
 До изменений этапа 1 повторно подтверждён DoD этапа 0: `cargo fmt --check`, clippy, 10 integration tests, doctest и rustdoc прошли.
 

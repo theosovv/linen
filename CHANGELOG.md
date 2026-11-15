@@ -15,15 +15,22 @@
 - Лицензия MIT.
 - Спецификация 0.1.1: уточнены границы этапа 1, malformed literals, primary spans, Unicode line/column, fail-fast diagnostics и parser limits; добавлены `E1102` и `E1103`.
 - Документ этапа 1, задача на подготовительный каркас и ADR 0011.
-- Типы tokens/AST, `ParserConfig`, CLI dispatch `check`, fixtures и независимые lexer/parser/diagnostics/CLI contract tests для этапа 1.
+- Ручные lexer/parser, tokens/AST, `ParserConfig`, source diagnostics и рабочая команда `check` для этапа 1.
+- Fixtures и независимые lexer/parser/diagnostics/CLI contract tests.
 
-### In progress
+### Fixed
 
-- Этап 1: `Lexer::tokenize`, `Parser::parse_program`, `line_column` и `render_diagnostic` остаются явными временными `todo!()` по согласованному объёму. Рабочий `linen check` ещё не реализован, contract tests до реализации падают на заглушках.
+- Primary spans `E1101`/`E1103` и primary/secondary spans `E2003` приведены к контракту спецификации; добавлены regression-тесты.
+- Diagnostic renderer подписывает primary caret текстом primary label, а не secondary label.
+- Поля `Span` снова приватны, поэтому диапазон нельзя создать в обход проверки `Span::new`.
+
+### Completed
+
+- Этап 1 завершён: lexer, parser, source diagnostics и `check` прошли приёмку. Следующий этап 2 добавит type checking, name resolution, интерпретатор и WAV.
 
 ### Compatibility
 
 - Существующие языковые программы и аудиоконтракты отсутствуют; обратной совместимости на этапе 0 пока нет.
-- Инфраструктурные `--help` и `--version` сохранены. Help включает незавершённый `check`, но это не объявляет его работающим.
+- Инфраструктурные `--help` и `--version` сохранены. Help включает рабочий `check`.
 - `run` и `inspect` не объявлены работающими и не имеют placeholder-реализаций.
 - Изменения спецификации 0.1.1 уточняют ещё не реализованный этап и не ломают существующие `.ln`-программы.

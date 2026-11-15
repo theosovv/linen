@@ -4,18 +4,20 @@
 
 **linen** — исследовательский некоммерческий проект статически типизированного функционального языка для описания аудиосигналов. Цель разработки — собственные компилятор, блочная виртуальная машина, DSP-узлы и инструменты исследования звука на Rust.
 
-> Этап 0 завершён. Этап 1 находится в работе: подготовлены контракты, тесты и каркас syntax, но lexer, parser, source renderer и рабочая команда `check` ещё не реализованы. Компиляция `.ln`, синтез звука и WAV также отсутствуют.
+> Этапы 0 и 1 завершены: lexer, parser, source diagnostics и команда `check` реализованы и прошли приёмку. Следующий этап 2 добавит type checking, интерпретатор, синтез звука и WAV; эти возможности ещё не реализованы.
 
 ## Что уже работает
 
 - Rust library и binary в одном package.
 - Структурированные `Span`, `Diagnostic`, severity и диагностические коды.
 - Проверка diagnostics через библиотечный API без запуска CLI.
+- Lexer, AST и recursive descent parser для Beep-синтаксиса, включая лимиты глубины и числа узлов.
+- Unicode/CRLF source locations и человекочитаемый diagnostic renderer.
+- `linen check` со структурными проверками `out`/`render`, diagnostics в stderr и кодами выхода из спецификации.
 - Инфраструктурные `--help` и `--version` у исполняемого файла.
-- Чтение исходного UTF-8 файла и файловая ошибка `E5000` в CLI-обёртке.
 - Integration tests, doctest, rustfmt, clippy и GitHub Actions CI.
 
-Для этапа 1 дополнительно подготовлены типы `Token`/AST, `ParserConfig`, fixtures и contract tests. Entry points lexer/parser и source diagnostics содержат явные временные `todo!()`; `linen check` пока непригоден для использования. `run` и `inspect` недоступны.
+`check` намеренно не выполняет name resolution, type checking или проверку положительности длительности: эта семантика относится к этапу 2. `run` и `inspect` недоступны.
 
 ## Требования
 
@@ -43,18 +45,19 @@ cargo test --doc --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 ```
 
-До завершения реализации этапа 1 contract tests ожидаемо достигают `todo!()`; зелёный набор является обязательным условием завершения этапа, а не текущим статусом каркаса.
+Полный набор должен проходить без ignored tests перед завершением этапа 1.
 
 ## Текущий CLI
 
-Работают только инфраструктурные команды:
+Работают инфраструктурные команды и синтаксическая проверка:
 
 ```bash
 cargo run -- --help
 cargo run -- --version
+cargo run -- check fixtures/valid/stage-01-beep.ln
 ```
 
-После установки binary доступны эквивалентные команды `linen --help` и `linen --version`. Неизвестные аргументы завершаются с кодом использования `2`. Незавершённый `check` не входит в список работающих команд.
+После установки binary доступны эквивалентные команды `linen --help`, `linen --version` и `linen check input.ln`. Успешный `check` ничего не печатает. Ошибка исходника возвращает код `1` и diagnostic в stderr; ошибка использования или чтения файла — код `2` и `E5000` для файловой ошибки.
 
 ## Библиотечный API diagnostics
 
@@ -74,7 +77,7 @@ fn main() {
 }
 ```
 
-`Span` — полуинтервал байтовых offsets `[start, end)`. `Diagnostic` хранит основной и дополнительные labels, notes, severity и стабильный код ошибки. Контракт Unicode line/column уже зафиксирован в спецификации, а их вычисление и source rendering остаются незавершённой частью этапа 1.
+`Span` — полуинтервал байтовых offsets `[start, end)`. `Diagnostic` хранит основной и дополнительные labels, notes, severity и стабильный код ошибки. `line_column` вычисляет 1-based Unicode/CRLF locations, а `render_diagnostic` формирует человекочитаемый вывод с именем файла и primary location.
 
 ## Структура
 
@@ -110,7 +113,7 @@ linen/
     └── workflows/ci.yml
 ```
 
-Новые модули появляются вместе с реальной функциональностью. Временные заглушки этапа 1 добавлены по отдельному разрешению и должны быть удалены до его завершения; пустых каталогов для будущих стадий в репозитории нет.
+Новые модули появляются вместе с реальной функциональностью. Временные заглушки этапа 1 удалены; пустых каталогов для будущих стадий в репозитории нет.
 
 ## Разработка по спецификации
 
@@ -118,7 +121,7 @@ linen/
 - [`docs/development/README.md`](docs/development/README.md) — spec-driven workflow.
 - [`docs/development/task-template.md`](docs/development/task-template.md) — шаблон проверяемой задачи с allowlist.
 - [`docs/development/stages/stage-00-foundation.md`](docs/development/stages/stage-00-foundation.md) — объём, traceability и DoD этапа 0.
-- [`docs/development/stages/stage-01-syntax.md`](docs/development/stages/stage-01-syntax.md) — контракты, состояние каркаса, матрица проверки и DoD этапа 1.
+- [`docs/development/stages/stage-01-syntax.md`](docs/development/stages/stage-01-syntax.md) — контракты, состояние реализации, матрица проверки и DoD этапа 1.
 - [`docs/adr/`](docs/adr/) — архитектурные решения.
 - [`AGENTS.md`](AGENTS.md) — обязательные правила для ИИ-агентов.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — участие человека и делегирование задач агентам.
@@ -130,10 +133,10 @@ linen/
 | Этап | Состояние | Результат |
 |---|---|---|
 | 0. Каркас и правила проверки | Завершён | Diagnostics, тесты, toolchain и CI |
-| 1. Lexer, parser и синтаксические diagnostics | В работе: контракты и каркас | Разбор Beep-синтаксиса без type checking и звука |
-| 2. Типы, наивный интерпретатор и Beep WAV | Запланирован | Первая работающая вертикаль `source → sound` |
+| 1. Lexer, parser и синтаксические diagnostics | Завершён | Разбор Beep-синтаксиса без type checking и звука |
+| 2. Типы, наивный интерпретатор и Beep WAV | Следующий | Первая работающая вертикаль `source → sound` |
 
-Этапы выполняются последовательно. Рабочий пример `check` будет добавлен в README только после устранения заглушек и прохождения приёмки; примеры звука — после реализации соответствующих команд.
+Этапы выполняются последовательно. Примеры звука будут добавлены после реализации соответствующих команд.
 
 ## Лицензия
 
