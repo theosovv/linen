@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use linen::{Diagnostic, DiagnosticLabel, ErrorCode, Severity, Span};
+use linen::{
+    Diagnostic, DiagnosticLabel, ErrorCode, LineColumn, Severity, Span, line_column,
+    render_diagnostic,
+};
 
 #[test]
 fn span_is_a_half_open_byte_range() {
@@ -85,6 +88,8 @@ fn error_codes_match_the_specification_and_are_unique() {
         (ErrorCode::InvalidNumberOrDuration, "E1001"),
         (ErrorCode::UnexpectedToken, "E1100"),
         (ErrorCode::MissingSemicolon, "E1101"),
+        (ErrorCode::ExpressionDepthLimit, "E1102"),
+        (ErrorCode::AstNodeLimit, "E1103"),
         (ErrorCode::DuplicateBinding, "E2000"),
         (ErrorCode::UnknownName, "E2001"),
         (ErrorCode::MissingOutput, "E2002"),
@@ -111,4 +116,54 @@ fn error_codes_match_the_specification_and_are_unique() {
 
     let unique_codes: BTreeSet<_> = ErrorCode::ALL.iter().map(|code| code.as_str()).collect();
     assert_eq!(unique_codes.len(), expected.len());
+}
+
+#[test]
+fn spec_4_3_line_column_counts_unicode_characters_and_crlf_once() {
+    let source = "aé\r\n\tb";
+    let cases = [
+        (0, LineColumn::new(1, 1)),
+        (1, LineColumn::new(1, 2)),
+        (5, LineColumn::new(2, 1)),
+        (6, LineColumn::new(2, 2)),
+        (7, LineColumn::new(2, 3)),
+    ];
+
+    for (offset, expected) in cases {
+        assert_eq!(line_column(source, offset), Some(expected));
+    }
+}
+
+#[test]
+fn spec_4_3_line_column_handles_lone_cr_and_invalid_offsets() {
+    assert_eq!(line_column("a\rb", 2), Some(LineColumn::new(1, 3)));
+    assert_eq!(line_column("é", 1), None);
+    assert_eq!(line_column("é", 3), None);
+}
+
+#[test]
+fn spec_6_2_renderer_associates_the_caret_with_the_primary_label() {
+    let source = include_str!("../fixtures/invalid/stage-01-duplicate-out.ln");
+    let diagnostic = Diagnostic::error(
+        ErrorCode::MultipleOutputs,
+        "multiple out bindings",
+        DiagnosticLabel::new(
+            Span::new(17, 20).expect("the primary span is valid"),
+            "the second out binding is here",
+        ),
+    )
+    .with_secondary(DiagnosticLabel::new(
+        Span::new(4, 7).expect("the secondary span is valid"),
+        "the first out binding is here",
+    ));
+
+    let rendered = render_diagnostic("duplicate-out.ln", source, &diagnostic);
+
+    assert_eq!(
+        rendered.lines().next(),
+        Some("error[E2003]: multiple out bindings")
+    );
+    assert!(rendered.contains("duplicate-out.ln:2:5"));
+    assert!(rendered.contains("^ the second out binding is here"));
+    assert!(!rendered.contains("^ the first out binding is here"));
 }

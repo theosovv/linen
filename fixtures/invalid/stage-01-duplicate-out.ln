@@ -1,0 +1,3 @@
+let out = 1;
+let out = 2;
+render 1s;

@@ -1,5 +1,7 @@
 use std::env;
 use std::ffi::OsStr;
+use std::fs;
+use std::path::Path;
 use std::process::ExitCode;
 
 const HELP: &str = concat!(
@@ -7,10 +9,11 @@ const HELP: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     "\n",
     "An experimental functional language for audio signals.\n",
-    "Compiler and audio rendering commands are not implemented yet.\n\n",
+    "Checks Beep syntax without type checking or audio rendering.\n\n",
     "Usage:\n",
     "  linen --help\n",
-    "  linen --version\n"
+    "  linen --version\n",
+    "  linen check <input.ln>\n"
 );
 
 fn main() -> ExitCode {
@@ -29,9 +32,31 @@ fn main() -> ExitCode {
             println!("linen {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
+        [command, path] if command == "check" => run_check(Path::new(path)),
         _ => {
-            eprint!("error: expected --help or --version\n\n{HELP}");
+            eprint!("error: expected --help, --version, or check <input.ln>\n\n{HELP}");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn run_check(path: &Path) -> ExitCode {
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("error[E5000]: could not read '{}': {error}", path.display());
+            return ExitCode::from(2);
+        }
+    };
+
+    match linen::check(&source) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(diagnostic) => {
+            eprint!(
+                "{}",
+                linen::render_diagnostic(&path.display().to_string(), &source, &diagnostic)
+            );
+            ExitCode::from(1)
         }
     }
 }

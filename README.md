@@ -4,17 +4,20 @@
 
 **linen** — исследовательский некоммерческий проект статически типизированного функционального языка для описания аудиосигналов. Цель разработки — собственные компилятор, блочная виртуальная машина, DSP-узлы и инструменты исследования звука на Rust.
 
-> Сейчас завершён только инфраструктурный этап 0. Компиляция `.ln`, синтез звука и WAV ещё не реализованы.
+> Этапы 0 и 1 завершены: lexer, parser, source diagnostics и команда `check` реализованы и прошли приёмку. Следующий этап 2 добавит type checking, интерпретатор, синтез звука и WAV; эти возможности ещё не реализованы.
 
 ## Что уже работает
 
 - Rust library и binary в одном package.
-- Структурированные `Span`, `Diagnostic`, severity и начальные диагностические коды.
+- Структурированные `Span`, `Diagnostic`, severity и диагностические коды.
 - Проверка diagnostics через библиотечный API без запуска CLI.
+- Lexer, AST и recursive descent parser для Beep-синтаксиса, включая лимиты глубины и числа узлов.
+- Unicode/CRLF source locations и человекочитаемый diagnostic renderer.
+- `linen check` со структурными проверками `out`/`render`, diagnostics в stderr и кодами выхода из спецификации.
 - Инфраструктурные `--help` и `--version` у исполняемого файла.
 - Integration tests, doctest, rustfmt, clippy и GitHub Actions CI.
 
-Команды `linen check`, `linen run` и `linen inspect` относятся к следующим этапам и сейчас недоступны.
+`check` намеренно не выполняет name resolution, type checking или проверку положительности длительности: эта семантика относится к этапу 2. `run` и `inspect` недоступны.
 
 ## Требования
 
@@ -42,16 +45,21 @@ cargo test --doc --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 ```
 
+Полный набор должен проходить без ignored tests перед завершением этапа 1.
+
 ## Текущий CLI
+
+Работают инфраструктурные команды и синтаксическая проверка:
 
 ```bash
 cargo run -- --help
 cargo run -- --version
+cargo run -- check fixtures/valid/stage-01-beep.ln
 ```
 
-После установки binary доступны эквивалентные команды `linen --help` и `linen --version`. Неизвестные аргументы завершаются с кодом использования `2`.
+После установки binary доступны эквивалентные команды `linen --help`, `linen --version` и `linen check input.ln`. Успешный `check` ничего не печатает. Ошибка исходника возвращает код `1` и diagnostic в stderr; ошибка использования или чтения файла — код `2` и `E5000` для файловой ошибки.
 
-## Библиотечный API этапа 0
+## Библиотечный API diagnostics
 
 ```rust
 use linen::{Diagnostic, DiagnosticLabel, ErrorCode, Span};
@@ -69,7 +77,7 @@ fn main() {
 }
 ```
 
-`Span` — полуинтервал байтовых offsets `[start, end)`. `Diagnostic` хранит основной и дополнительные labels, notes, severity и стабильный код ошибки. Source rendering и line/column появятся вместе с соответствующей frontend-функциональностью.
+`Span` — полуинтервал байтовых offsets `[start, end)`. `Diagnostic` хранит основной и дополнительные labels, notes, severity и стабильный код ошибки. `line_column` вычисляет 1-based Unicode/CRLF locations, а `render_diagnostic` формирует человекочитаемый вывод с именем файла и primary location.
 
 ## Структура
 
@@ -82,10 +90,21 @@ linen/
 ├── src/
 │   ├── lib.rs
 │   ├── main.rs
-│   └── diagnostic.rs
+│   ├── diagnostic.rs
+│   └── syntax/
+│       ├── mod.rs
+│       ├── token.rs
+│       ├── lexer.rs
+│       ├── ast.rs
+│       └── parser.rs
 ├── tests/
 │   ├── cli.rs
-│   └── diagnostics.rs
+│   ├── diagnostics.rs
+│   ├── lexer.rs
+│   └── parser.rs
+├── fixtures/
+│   ├── valid/
+│   └── invalid/
 ├── docs/
 │   ├── adr/
 │   └── development/
@@ -94,7 +113,7 @@ linen/
     └── workflows/ci.yml
 ```
 
-Новые модули появляются только вместе с реальной функциональностью; пустых каталогов для будущих стадий в репозитории нет.
+Новые модули появляются вместе с реальной функциональностью. Временные заглушки этапа 1 удалены; пустых каталогов для будущих стадий в репозитории нет.
 
 ## Разработка по спецификации
 
@@ -102,6 +121,7 @@ linen/
 - [`docs/development/README.md`](docs/development/README.md) — spec-driven workflow.
 - [`docs/development/task-template.md`](docs/development/task-template.md) — шаблон проверяемой задачи с allowlist.
 - [`docs/development/stages/stage-00-foundation.md`](docs/development/stages/stage-00-foundation.md) — объём, traceability и DoD этапа 0.
+- [`docs/development/stages/stage-01-syntax.md`](docs/development/stages/stage-01-syntax.md) — контракты, состояние реализации, матрица проверки и DoD этапа 1.
 - [`docs/adr/`](docs/adr/) — архитектурные решения.
 - [`AGENTS.md`](AGENTS.md) — обязательные правила для ИИ-агентов.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — участие человека и делегирование задач агентам.
@@ -113,10 +133,10 @@ linen/
 | Этап | Состояние | Результат |
 |---|---|---|
 | 0. Каркас и правила проверки | Завершён | Diagnostics, тесты, toolchain и CI |
-| 1. Lexer, parser и синтаксические diagnostics | Следующий | Разбор Beep-синтаксиса без type checking и звука |
-| 2. Типы, наивный интерпретатор и Beep WAV | Запланирован | Первая работающая вертикаль `source → sound` |
+| 1. Lexer, parser и синтаксические diagnostics | Завершён | Разбор Beep-синтаксиса без type checking и звука |
+| 2. Типы, наивный интерпретатор и Beep WAV | Следующий | Первая работающая вертикаль `source → sound` |
 
-Этапы выполняются последовательно. Примеры Beep будут добавлены в README только после того, как соответствующие команды действительно заработают.
+Этапы выполняются последовательно. Примеры звука будут добавлены после реализации соответствующих команд.
 
 ## Лицензия
 

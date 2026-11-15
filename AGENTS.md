@@ -13,9 +13,9 @@
 
 ## Текущее состояние
 
-- Текущий каркас: этап 0. Следующий производственный этап — lexer/parser из этапа 1.
-- Реализованы только `Span`, `Diagnostic`, severity, начальные коды ошибок и инфраструктурные help/version CLI.
-- `check`, `run`, `inspect`, lexer, parser, type checker, audio и VM ещё не реализованы.
+- Этап 1 завершён. Следующий производственный этап — type checker, наивный интерпретатор и WAV из этапа 2.
+- Реализованы diagnostics, tokens/AST, lexer, parser, parser limits, Unicode/CRLF locations, source renderer и команда `check`.
+- `run`, `inspect`, type checker, audio и VM ещё не реализованы.
 - Не начинайте следующий этап без явной задачи и выполненного DoD предыдущего.
 
 ## Полномочия и границы изменений

@@ -1,7 +1,8 @@
 //! Public library facade for linen.
 //!
-//! At stage 0 the crate provides structured diagnostics. Compiler and audio
-//! rendering APIs will be exposed only when their implementations exist.
+//! The crate provides structured diagnostics and the unstable stage 1 syntax
+//! API. Audio rendering APIs will be exposed only when their implementations
+//! exist.
 //!
 //! ```
 //! use linen::{Diagnostic, DiagnosticLabel, ErrorCode, Span};
@@ -19,5 +20,10 @@
 //! ```
 
 pub mod diagnostic;
+pub mod syntax;
 
-pub use diagnostic::{Diagnostic, DiagnosticLabel, ErrorCode, InvalidSpan, Severity, Span};
+pub use diagnostic::{
+    Diagnostic, DiagnosticLabel, ErrorCode, InvalidSpan, LineColumn, Severity, Span, line_column,
+    render_diagnostic,
+};
+pub use syntax::{Program, check};
