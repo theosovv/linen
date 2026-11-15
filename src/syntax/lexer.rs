@@ -1,0 +1,266 @@
+use crate::{
+    Diagnostic, DiagnosticLabel, ErrorCode, Span,
+    syntax::{DurationUnit, TokenKind},
+};
+
+use super::Token;
+
+pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
+    Lexer::new(source).tokenize()
+}
+
+pub struct Lexer<'source> {
+    source: &'source str,
+    start: usize,
+    offset: usize,
+    tokens: Vec<Token>,
+}
+
+impl<'source> Lexer<'source> {
+    pub fn new(source: &'source str) -> Self {
+        Self {
+            source,
+            start: 0,
+            offset: 0,
+            tokens: Vec::new(),
+        }
+    }
+
+    pub fn tokenize(mut self) -> Result<Vec<Token>, Diagnostic> {
+        while let Some(ch) = self.peek() {
+            self.start = self.offset;
+
+            match ch {
+                ' ' | '\t' | '\r' | '\n' => {
+                    self.advance();
+                }
+                '0'..='9' => {
+                    self.number()?;
+                }
+                'a'..='z' | 'A'..='Z' | '_' => {
+                    self.identifier()?;
+                }
+                '+' => {
+                    self.advance();
+                    self.add_token(TokenKind::Plus);
+                }
+                '-' => {
+                    self.advance();
+                    self.add_token(TokenKind::Minus);
+                }
+                '*' => {
+                    self.advance();
+                    self.add_token(TokenKind::Star);
+                }
+                '/' => {
+                    self.advance();
+
+                    if self.consume_if('/') {
+                        while self.peek().is_some_and(|ch| ch != '\n') {
+                            self.advance();
+                        }
+                    } else {
+                        self.add_token(TokenKind::Slash);
+                    }
+                }
+                '(' => {
+                    self.advance();
+                    self.add_token(TokenKind::LeftParen);
+                }
+                ')' => {
+                    self.advance();
+                    self.add_token(TokenKind::RightParen);
+                }
+                ',' => {
+                    self.advance();
+                    self.add_token(TokenKind::Comma);
+                }
+                ':' => {
+                    self.advance();
+                    self.add_token(TokenKind::Colon);
+                }
+                '=' => {
+                    self.advance();
+                    self.add_token(TokenKind::Equal);
+                }
+                ';' => {
+                    self.advance();
+                    self.add_token(TokenKind::Semicolon);
+                }
+                _ => {
+                    self.advance();
+
+                    return Err(self
+                        .error(ErrorCode::UnknownCharacter, "unexpected character", ch)
+                        .with_secondary(DiagnosticLabel::new(
+                            Span::empty(self.offset),
+                            "this character is not recognized",
+                        )));
+                }
+            }
+        }
+
+        self.tokens
+            .push(Token::new(TokenKind::Eof, Span::empty(self.offset)));
+
+        Ok(self.tokens)
+    }
+
+    fn identifier(&mut self) -> Result<(), Diagnostic> {
+        while self.peek().is_some_and(Self::is_identifier_continue) {
+            self.advance();
+        }
+
+        let identifier = &self.source[self.start..self.offset];
+        let kind = match identifier {
+            "let" => TokenKind::Let,
+            "render" => TokenKind::Render,
+            "Float" => TokenKind::Float,
+            "Sig" => TokenKind::Sig,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
+            "type" => TokenKind::Type,
+            "match" => TokenKind::Match,
+            "mod" => TokenKind::Mod,
+            "use" => TokenKind::Use,
+            "feedback" => TokenKind::Feedback,
+            "event" => TokenKind::Event,
+            "mut" => TokenKind::Mut,
+            "where" => TokenKind::Where,
+            _ => TokenKind::Identifier(identifier.to_string()),
+        };
+        self.add_token(kind);
+
+        Ok(())
+    }
+
+    fn number(&mut self) -> Result<(), Diagnostic> {
+        self.consume_digits();
+
+        if self.peek() == Some('.') {
+            self.advance();
+
+            if !self.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+                return Err(self.invalid_number());
+            }
+
+            self.consume_digits();
+        }
+
+        if matches!(self.peek(), Some('e' | 'E')) {
+            self.advance();
+
+            if matches!(self.peek(), Some('+' | '-')) {
+                self.advance();
+            }
+
+            if !self.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+                return Err(self.invalid_number());
+            }
+
+            self.consume_digits();
+        }
+
+        let number_end = self.offset;
+        let unit = if self.consume_if('m') {
+            if self.consume_if('s') {
+                Some(DurationUnit::Milliseconds)
+            } else {
+                return Err(self.invalid_number());
+            }
+        } else if self.consume_if('s') {
+            Some(DurationUnit::Seconds)
+        } else {
+            None
+        };
+
+        if self
+            .peek()
+            .is_some_and(|ch| Self::is_identifier_continue(ch) || ch == '.')
+        {
+            return Err(self.invalid_number());
+        }
+
+        let value = self.source[self.start..number_end]
+            .parse::<f64>()
+            .expect("the numeric grammar was checked before parsing");
+
+        let kind = match unit {
+            Some(unit) => TokenKind::Duration { value, unit },
+            None => TokenKind::Number(value),
+        };
+        self.add_token(kind);
+
+        Ok(())
+    }
+
+    fn consume_digits(&mut self) {
+        while self.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+            self.advance();
+        }
+    }
+
+    fn invalid_number(&mut self) -> Diagnostic {
+        let start = self.start;
+        while self
+            .peek()
+            .is_some_and(|ch| Self::is_identifier_continue(ch) || ch == '.')
+        {
+            self.advance();
+        }
+
+        let label = self
+            .source
+            .get(start..self.offset)
+            .expect("the lexer should produce valid label");
+
+        self.error(
+            ErrorCode::InvalidNumberOrDuration,
+            "invalid number or duration",
+            label,
+        )
+        .with_secondary(DiagnosticLabel::new(
+            Span::empty(self.offset),
+            "the invalid numerical is here",
+        ))
+    }
+
+    fn is_identifier_continue(ch: char) -> bool {
+        ch.is_ascii_alphanumeric() || ch == '_'
+    }
+
+    fn consume_if(&mut self, expexted: char) -> bool {
+        if self.peek() != Some(expexted) {
+            return false;
+        }
+        self.advance();
+        true
+    }
+
+    fn advance(&mut self) -> Option<char> {
+        let ch = self.peek()?;
+        self.offset += ch.len_utf8();
+        Some(ch)
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.source.get(self.offset..)?.chars().next()
+    }
+
+    fn add_token(&mut self, kind: TokenKind) {
+        let span =
+            Span::new(self.start, self.offset).expect("the lexer should produce valid spans");
+        self.tokens.push(Token::new(kind, span));
+    }
+
+    fn error(
+        &self,
+        code: ErrorCode,
+        message: impl Into<String>,
+        label: impl Into<String>,
+    ) -> Diagnostic {
+        let span =
+            Span::new(self.start, self.offset).expect("the lexer should produce valid spans");
+        Diagnostic::error(code, message, DiagnosticLabel::new(span, label))
+    }
+}

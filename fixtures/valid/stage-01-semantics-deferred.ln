@@ -1,0 +1,5 @@
+let value = later;
+let later = 1;
+let value = value;
+let out: Float = unknown(1, 2);
+render -1s;

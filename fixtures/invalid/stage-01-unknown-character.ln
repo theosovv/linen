@@ -1,0 +1,2 @@
+let out = @;
+render 1s;

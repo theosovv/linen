@@ -27,3 +27,4 @@ ADR фиксирует нетривиальное архитектурное р�
 
 - [0001 — один crate и границы модулей](0001-single-crate-module-boundaries.md).
 - [0002 — source spans и структура diagnostics](0002-source-spans-and-diagnostics.md).
+- [0011 — лимиты parser и fail-fast diagnostics этапа 1](0011-stage-1-parser-limits-and-diagnostics.md).
