@@ -1,25 +1,28 @@
 use crate::{
-    Diagnostic, DiagnosticLabel, ErrorCode, Span,
+    Diagnostic, DiagnosticLabel, ErrorCode,
+    source::{SourceId, SourceSpan},
     syntax::{DurationUnit, TokenKind},
 };
 
 use super::Token;
 
-pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
-    Lexer::new(source).tokenize()
+pub fn lex(source: &str, source_id: SourceId) -> Result<Vec<Token>, Diagnostic> {
+    Lexer::new(source, source_id).tokenize()
 }
 
 pub struct Lexer<'source> {
     source: &'source str,
+    source_id: SourceId,
     start: usize,
     offset: usize,
     tokens: Vec<Token>,
 }
 
 impl<'source> Lexer<'source> {
-    pub fn new(source: &'source str) -> Self {
+    pub fn new(source: &'source str, source_id: SourceId) -> Self {
         Self {
             source,
+            source_id,
             start: 0,
             offset: 0,
             tokens: Vec::new(),
@@ -99,8 +102,10 @@ impl<'source> Lexer<'source> {
             }
         }
 
-        self.tokens
-            .push(Token::new(TokenKind::Eof, Span::empty(self.offset)));
+        self.tokens.push(Token::new(
+            TokenKind::Eof,
+            SourceSpan::empty(self.source_id, self.offset),
+        ));
 
         Ok(self.tokens)
     }
@@ -122,6 +127,10 @@ impl<'source> Lexer<'source> {
             "match" => TokenKind::Match,
             "mod" => TokenKind::Mod,
             "use" => TokenKind::Use,
+            "export" => TokenKind::Export,
+            "package" => TokenKind::Package,
+            "from" => TokenKind::From,
+            "as" => TokenKind::As,
             "feedback" => TokenKind::Feedback,
             "event" => TokenKind::Event,
             "mut" => TokenKind::Mut,
@@ -218,8 +227,8 @@ impl<'source> Lexer<'source> {
         ch.is_ascii_alphanumeric() || ch == '_'
     }
 
-    fn consume_if(&mut self, expexted: char) -> bool {
-        if self.peek() != Some(expexted) {
+    fn consume_if(&mut self, expected: char) -> bool {
+        if self.peek() != Some(expected) {
             return false;
         }
         self.advance();
@@ -237,8 +246,8 @@ impl<'source> Lexer<'source> {
     }
 
     fn add_token(&mut self, kind: TokenKind) {
-        let span =
-            Span::new(self.start, self.offset).expect("the lexer should produce valid spans");
+        let span = SourceSpan::new(self.source_id, self.start, self.offset)
+            .expect("the lexer should produce valid spans");
         self.tokens.push(Token::new(kind, span));
     }
 
@@ -248,8 +257,8 @@ impl<'source> Lexer<'source> {
         message: impl Into<String>,
         label: impl Into<String>,
     ) -> Diagnostic {
-        let span =
-            Span::new(self.start, self.offset).expect("the lexer should produce valid spans");
+        let span = SourceSpan::new(self.source_id, self.start, self.offset)
+            .expect("the lexer should produce valid spans");
         Diagnostic::error(code, message, DiagnosticLabel::new(span, label))
     }
 }

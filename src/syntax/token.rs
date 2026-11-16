@@ -1,15 +1,15 @@
 use std::fmt::Display;
 
-use crate::Span;
+use crate::source::SourceSpan;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 impl Token {
-    pub fn new(kind: TokenKind, span: Span) -> Self {
+    pub fn new(kind: TokenKind, span: SourceSpan) -> Self {
         Self { kind, span }
     }
 }
@@ -29,6 +29,10 @@ pub enum TokenKind {
     Match,
     Mod,
     Use,
+    Export,
+    Package,
+    From,
+    As,
     Feedback,
     Event,
     Mut,
@@ -66,6 +70,10 @@ impl Display for TokenKind {
             TokenKind::Match => f.write_str("match"),
             TokenKind::Mod => f.write_str("mod"),
             TokenKind::Use => f.write_str("use"),
+            TokenKind::Export => f.write_str("export"),
+            TokenKind::Package => f.write_str("package"),
+            TokenKind::From => f.write_str("from"),
+            TokenKind::As => f.write_str("as"),
             TokenKind::Feedback => f.write_str("feedback"),
             TokenKind::Event => f.write_str("event"),
             TokenKind::Mut => f.write_str("mut"),

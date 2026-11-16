@@ -1,13 +1,15 @@
 //! Public library facade for linen.
 //!
-//! The crate provides structured diagnostics and the unstable stage 1 syntax
-//! API. Audio rendering APIs will be exposed only when their implementations
-//! exist.
+//! The crate provides structured diagnostics and the unstable stage 1A
+//! source-aware syntax API. Audio rendering APIs will be exposed only when
+//! their implementations exist.
 //!
 //! ```
-//! use linen::{Diagnostic, DiagnosticLabel, ErrorCode, Span};
+//! use linen::{Diagnostic, DiagnosticLabel, ErrorCode, SourceMap, SourceSpan};
 //!
-//! let span = Span::new(4, 7)?;
+//! let mut sources = SourceMap::new();
+//! let source = sources.add_source("input.ln", "let out = 1; render 1s;");
+//! let span = SourceSpan::new(source, 4, 7)?;
 //! let diagnostic = Diagnostic::error(
 //!     ErrorCode::UnknownName,
 //!     "unknown name",
@@ -19,11 +21,16 @@
 //! # Ok::<(), linen::InvalidSpan>(())
 //! ```
 
+pub mod api;
 pub mod diagnostic;
+pub mod source;
 pub mod syntax;
 
-pub use diagnostic::{
-    Diagnostic, DiagnosticLabel, ErrorCode, InvalidSpan, LineColumn, Severity, Span, line_column,
-    render_diagnostic,
+pub use api::{
+    CheckOutcome, CompileConfig, CompileSession, SessionError, check, check_with_config,
 };
-pub use syntax::{Program, check};
+pub use diagnostic::{
+    Diagnostic, DiagnosticLabel, DiagnosticRenderError, ErrorCode, Severity, render_diagnostic,
+};
+pub use source::{InvalidSpan, LineColumn, SourceFile, SourceId, SourceMap, SourceSpan};
+pub use syntax::Program;

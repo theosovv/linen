@@ -7,7 +7,7 @@ body:
     attributes:
       label: Этап
       description: Номер и название текущего этапа из SPEC.md.
-      placeholder: "1 — Lexer, parser и синтаксические diagnostics"
+      placeholder: "1A — SourceMap и явный контекст компиляции"
     validations:
       required: true
 
@@ -15,7 +15,7 @@ body:
     id: specification
     attributes:
       label: Требования спецификации
-      description: Перечислите разделы SPEC.md, конкретные инварианты и связанные ADR.
+      description: Перечислите разделы SPEC.md, конкретные инварианты и связанные ADR. Для compiler changes укажите затронутые SourceSpan/determinism/origin/capability требования или явно «не затрагиваются».
     validations:
       required: true
 
@@ -67,4 +67,6 @@ body:
         - label: Новые зависимости, toolchain updates, placeholders и возможности следующих этапов запрещены.
           required: true
         - label: Удаление/ослабление тестов, ignore и рост tolerances без отдельного обоснования запрещены.
+          required: true
+        - label: Module/package/registry/plugin функциональность не добавляется, если задача ограничена SourceMap/determinism или другими ранними инвариантами.
           required: true

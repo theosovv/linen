@@ -2,6 +2,7 @@
 
 - Статус: принят.
 - Дата: 2026-11-11.
+- Актуализация: ADR 0012 добавляет `SourceId` в spans и сохраняет fail-fast порядок, лимиты и правила line/column. Reserved words `export`, `package`, `from`, `as` добавляются этапом 1A без реализации module syntax.
 
 ## Контекст
 

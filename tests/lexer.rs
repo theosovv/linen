@@ -1,28 +1,40 @@
 use std::panic::catch_unwind;
 
 use linen::syntax::{DurationUnit, Token, TokenKind, lex};
-use linen::{ErrorCode, Span};
+use linen::{ErrorCode, SourceId, SourceMap, SourceSpan};
 
-fn span(start: usize, end: usize) -> Span {
-    Span::new(start, end).expect("the test span is valid")
+fn test_source_id() -> SourceId {
+    let mut sources = SourceMap::new();
+    sources.add_source("test.ln", "")
+}
+
+fn span_for(source: SourceId, start: usize, end: usize) -> SourceSpan {
+    SourceSpan::new(source, start, end).expect("the test span is valid")
 }
 
 fn assert_tokens(source: &str, expected: &[(TokenKind, (usize, usize))]) {
-    let actual = lex(source).expect("the source should lex");
+    let mut sources = SourceMap::new();
+    let source_id = sources.add_source("test.ln", source);
+    let actual = lex(source, source_id).expect("the source should lex");
     let mut expected: Vec<_> = expected
         .iter()
-        .map(|(kind, (start, end))| Token::new(kind.clone(), span(*start, *end)))
+        .map(|(kind, (start, end))| Token::new(kind.clone(), span_for(source_id, *start, *end)))
         .collect();
-    expected.push(Token::new(TokenKind::Eof, Span::empty(source.len())));
+    expected.push(Token::new(
+        TokenKind::Eof,
+        SourceSpan::empty(source_id, source.len()),
+    ));
 
     assert_eq!(actual, expected);
 }
 
 fn assert_lex_error(source: &str, code: ErrorCode, start: usize, end: usize) {
-    let diagnostic = lex(source).expect_err("the source should not lex");
+    let mut sources = SourceMap::new();
+    let source_id = sources.add_source("test.ln", source);
+    let diagnostic = lex(source, source_id).expect_err("the source should not lex");
 
     assert_eq!(diagnostic.code(), code);
-    assert_eq!(diagnostic.primary().span(), span(start, end));
+    assert_eq!(diagnostic.primary().span(), span_for(source_id, start, end));
 }
 
 #[test]
@@ -107,6 +119,27 @@ fn spec_4_3_keywords_are_reserved_and_out_is_an_identifier() {
 }
 
 #[test]
+fn spec_4_3_stage_1a_keywords_are_reserved_without_losing_identifier_boundaries() {
+    assert_tokens(
+        "export package from as exported package1 from_ as2 Export Package From As",
+        &[
+            (TokenKind::Export, (0, 6)),
+            (TokenKind::Package, (7, 14)),
+            (TokenKind::From, (15, 19)),
+            (TokenKind::As, (20, 22)),
+            (TokenKind::Identifier("exported".into()), (23, 31)),
+            (TokenKind::Identifier("package1".into()), (32, 40)),
+            (TokenKind::Identifier("from_".into()), (41, 46)),
+            (TokenKind::Identifier("as2".into()), (47, 50)),
+            (TokenKind::Identifier("Export".into()), (51, 57)),
+            (TokenKind::Identifier("Package".into()), (58, 65)),
+            (TokenKind::Identifier("From".into()), (66, 70)),
+            (TokenKind::Identifier("As".into()), (71, 73)),
+        ],
+    );
+}
+
+#[test]
 fn spec_4_3_punctuation_has_independent_tokens() {
     assert_tokens(
         "+ - * / ( ) , : = ;",
@@ -181,12 +214,31 @@ fn spec_4_3_unknown_character_fixture_has_the_exact_primary_span() {
 }
 
 #[test]
+fn spec_5_8_all_token_and_eof_spans_keep_a_nondefault_source_id() {
+    let mut sources = SourceMap::new();
+    sources.add_source("first.ln", "let other = 0;");
+    let source_id = sources.add_source("second.ln", "let out = 1;");
+    let tokens = lex("let out = 1;", source_id).expect("the source should lex");
+
+    assert_eq!(source_id.index(), 1);
+    assert!(tokens.len() > 1);
+    assert!(matches!(
+        tokens.last().map(|token| &token.kind),
+        Some(TokenKind::Eof)
+    ));
+    for token in tokens {
+        assert_eq!(token.span.source(), source_id);
+    }
+}
+
+#[test]
 fn spec_7_6_lexer_does_not_panic_on_deterministic_unicode_corpus() {
     const ALPHABET: &[char] = &[
         'a', '_', '0', '9', '.', 'e', 'E', '+', '-', 'm', 's', '/', '\r', '\n', '\t', ' ', 'é',
         '💡', '@', '(', ')', ';', ',', '\0',
     ];
     let mut state = 0x4c45_5845_5231_u64;
+    let source_id = test_source_id();
 
     for case_index in 0..64 {
         let mut source = String::new();
@@ -198,7 +250,7 @@ fn spec_7_6_lexer_does_not_panic_on_deterministic_unicode_corpus() {
             source.push(ALPHABET[index]);
         }
 
-        let result = catch_unwind(|| lex(&source));
+        let result = catch_unwind(|| lex(&source, source_id));
         assert!(
             result.is_ok(),
             "lexer panicked for corpus case {case_index}"

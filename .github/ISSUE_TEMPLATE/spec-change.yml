@@ -29,7 +29,7 @@ body:
     id: compatibility
     attributes:
       label: Совместимость
-      description: Затронутые программы, fixtures, CLI flags, коды ошибок и числовые результаты.
+      description: Затронутые программы, fixtures, CLI flags, коды ошибок и числовые результаты. Отдельно укажите SourceId/SourceSpan, логические имена, детерминизм и, если применимо, language/VM/package compatibility.
     validations:
       required: true
 
