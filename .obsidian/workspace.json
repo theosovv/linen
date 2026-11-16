@@ -178,11 +178,13 @@
       "daily-notes:Сегодняшняя заметка": false,
       "templates:Вставить шаблон": false,
       "command-palette:Открыть палитру команд": false,
-      "bases:Создать новую базу": false
+      "bases:Создать новую базу": false,
+      "templater-obsidian:Templater": false
     }
   },
   "active": "0414049f8c4cf21a",
   "lastOpenFiles": [
+    "Без названия.canvas",
     "docs/development/templates/stage.md",
     "docs/development/templates",
     "SPEC.md",

@@ -1,4 +1,4 @@
-use crate::Span;
+use crate::source::SourceSpan;
 
 use super::DurationUnit;
 
@@ -6,7 +6,7 @@ use super::DurationUnit;
 pub struct Program {
     pub bindings: Vec<LetDecl>,
     pub render: RenderDecl,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,24 +14,24 @@ pub struct LetDecl {
     pub name: Identifier,
     pub annotation: Option<TypeAnnotation>,
     pub value: Expr,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderDecl {
     pub negative: bool,
     pub duration: DurationLiteral,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
     pub name: String,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 impl Identifier {
-    pub fn new(name: impl Into<String>, span: Span) -> Self {
+    pub fn new(name: impl Into<String>, span: SourceSpan) -> Self {
         Self {
             name: name.into(),
             span,
@@ -42,7 +42,7 @@ impl Identifier {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeAnnotation {
     pub kind: TypeName,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,17 +55,17 @@ pub enum TypeName {
 pub struct DurationLiteral {
     pub value: f64,
     pub unit: DurationUnit,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Expr {
     pub kind: ExprKind,
-    pub span: Span,
+    pub span: SourceSpan,
 }
 
 impl Expr {
-    pub fn new(kind: ExprKind, span: Span) -> Self {
+    pub fn new(kind: ExprKind, span: SourceSpan) -> Self {
         Self { kind, span }
     }
 }

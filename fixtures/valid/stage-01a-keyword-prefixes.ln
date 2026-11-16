@@ -1,0 +1,10 @@
+let exported = 1;
+let package1 = 2;
+let from_ = 3;
+let as2 = 4;
+let Export = 5;
+let Package = 6;
+let From = 7;
+let As = 8;
+let out = exported;
+render 1s;

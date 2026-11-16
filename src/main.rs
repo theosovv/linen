@@ -4,6 +4,8 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use linen::{CheckOutcome, CompileConfig};
+
 const HELP: &str = concat!(
     "linen ",
     env!("CARGO_PKG_VERSION"),
@@ -49,15 +51,29 @@ fn run_check(path: &Path) -> ExitCode {
         }
     };
 
-    match linen::check(&source) {
+    let Some(file_name) = path.file_name() else {
+        eprintln!(
+            "error[E5000]: could not determine logical source name for '{}'",
+            path.display()
+        );
+        return ExitCode::from(2);
+    };
+    let logical_name = file_name.to_string_lossy();
+    let CheckOutcome { sources, result } =
+        linen::check_with_config(&logical_name, &source, CompileConfig::default());
+
+    match result {
         Ok(_) => ExitCode::SUCCESS,
-        Err(diagnostic) => {
-            eprint!(
-                "{}",
-                linen::render_diagnostic(&path.display().to_string(), &source, &diagnostic)
-            );
-            ExitCode::from(1)
-        }
+        Err(diagnostic) => match linen::render_diagnostic(&sources, &diagnostic) {
+            Ok(rendered) => {
+                eprint!("{rendered}");
+                ExitCode::from(1)
+            }
+            Err(error) => {
+                eprintln!("internal error: could not render source diagnostic: {error}");
+                ExitCode::from(3)
+            }
+        },
     }
 }
 

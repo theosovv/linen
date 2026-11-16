@@ -21,7 +21,7 @@
 
 ## Текущее состояние
 
-Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Спецификация 0.2.0 добавила ранние требования экосистемы и выделила их реализацию в обязательный корректирующий этап 1A до начала этапа 2. Его объём находится в [`stages/stage-01a-ecosystem-foundation.md`](stages/stage-01a-ecosystem-foundation.md). Модульная система, manifest, registry и пакетный CLI в этот этап не входят.
+Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Корректирующий этап 1A завершён по `SPEC.md` 0.2.1: Source identity, явная session, source-aware diagnostics, determinism и новые reserved words реализованы и проверены. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Объём и фактическая приёмка находятся в [`stages/stage-01a-ecosystem-foundation.md`](stages/stage-01a-ecosystem-foundation.md). Модульная система, manifest, registry и пакетный CLI не реализованы. Следующий этап 2 начинается только по явной задаче.
 
 ## Цикл работы
 

@@ -15,9 +15,8 @@
 ## Текущее состояние
 
 - Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Реализованы diagnostics, tokens/AST, lexer, parser, parser limits, Unicode/CRLF locations, source renderer и команда `check`.
-- Спецификация 0.2.0 требует корректирующий этап 1A перед этапом 2: `SourceId`/`SourceMap`/`SourceSpan`, явный `CompileSession`, детерминированная компиляция и новые reserved words. Его спецификация находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
-- Этап 1A ещё не реализован: текущий код содержит однофайловый `Span` без `SourceId`; `export`, `package`, `from` и `as` пока остаются обычными идентификаторами в работающем lexer.
-- После приёмки 1A следующий производственный этап — type checker, наивный интерпретатор и WAV из этапа 2.
+- Корректирующий этап 1A по `SPEC.md` 0.2.1 завершён: `SourceId`/`SourceFile`/`SourceMap`/`SourceSpan`, line index, явный `CompileSession` и `CheckOutcome`, source-aware diagnostics, детерминированные проверки и reserved words `export`, `package`, `from`, `as`. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Отчёт находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
+- Следующий производственный этап — type checker, resolved IDs, наивный интерпретатор и WAV из этапа 2; начинать его можно только по явной задаче.
 - `run`, `inspect`, type checker, audio и VM ещё не реализованы.
 - Не начинайте следующий этап без явной задачи и выполненного DoD предыдущего.
 
@@ -59,7 +58,7 @@
 - `src/lib.rs` — небольшой facade только для реально существующего API.
 - `src/main.rs` — аргументы, streams, exit codes и файлы; логика компилятора там не размещается.
 - `src/diagnostic.rs` не зависит от parser, VM или CLI.
-- Источники имеют явные `SourceId` и логические имена; `SourceSpan` сохраняется через compiler stages. `SourceId` не является глобальным package/module ID.
+- Источники имеют явные `SourceId` и логические имена; `SourceSpan` сохраняется через compiler stages. `SourceId` не является глобальным package/module ID и используется только с создавшей его `SourceMap` или её идентичной копией. Независимые карты могут выдавать равные ID; unknown source означает отсутствующий в карте индекс, а не доказанное чужое происхождение.
 - Parser, resolver, type checker, lowering и VM не открывают файлы и не читают environment, сеть, системные часы или current working directory.
 - Конфигурация, sources, diagnostics и будущие symbol storages принадлежат явной компиляции; глобальные mutable interner/current file/random запрещены.
 - Детерминированный output не зависит от абсолютного пути, directory listing, locale или порядка обхода `HashMap`.
@@ -73,7 +72,7 @@
 - Каждый тест ссылается на конкретное требование спецификации в задаче или названии проверки.
 - Expected задаётся явно, аналитической формулой или независимым reference, но не проверяемой production-функцией.
 - Проверяйте positive, negative и boundary cases.
-- Для diagnostics проверяйте код и primary byte span, а после миграции 1A также `SourceId`, а не только наличие ошибки.
+- Для diagnostics проверяйте код, `SourceId` и primary byte span, а не только наличие ошибки.
 - Multi-source tests используют synthetic in-memory sources; одинаковое logical name и одинаковые offsets в разных источниках не должны смешиваться.
 - Повторная компиляция проверяется в одном process и в отдельных processes; физический путь не должен попадать в semantic artifacts.
 - Для DSP используйте посемпловые сравнения и формулу `abs(actual - expected) <= abs_tol + rel_tol * abs(expected)` из спецификации.

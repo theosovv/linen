@@ -1,20 +1,31 @@
 use std::collections::BTreeSet;
 
 use linen::{
-    Diagnostic, DiagnosticLabel, ErrorCode, LineColumn, Severity, Span, line_column,
+    Diagnostic, DiagnosticLabel, ErrorCode, Severity, SourceId, SourceMap, SourceSpan,
     render_diagnostic,
 };
 
-#[test]
-fn span_is_a_half_open_byte_range() {
-    let span = Span::new(4, 9).expect("the test span is valid");
+fn test_source_id() -> SourceId {
+    let mut sources = SourceMap::new();
+    sources.add_source("test.ln", "")
+}
 
+fn span(start: usize, end: usize) -> SourceSpan {
+    SourceSpan::new(test_source_id(), start, end).expect("the test span is valid")
+}
+
+#[test]
+fn source_span_is_a_half_open_byte_range() {
+    let span = span(4, 9);
+
+    assert_eq!(span.source(), test_source_id());
     assert_eq!(span.start(), 4);
     assert_eq!(span.end(), 9);
     assert_eq!(span.len(), 5);
     assert!(!span.is_empty());
 
-    let empty = Span::empty(7);
+    let empty = SourceSpan::empty(test_source_id(), 7);
+    assert_eq!(empty.source(), test_source_id());
     assert_eq!(empty.start(), 7);
     assert_eq!(empty.end(), 7);
     assert_eq!(empty.len(), 0);
@@ -22,8 +33,9 @@ fn span_is_a_half_open_byte_range() {
 }
 
 #[test]
-fn span_rejects_reversed_offsets_without_panicking() {
-    let error = Span::new(9, 4).expect_err("a reversed span must be rejected");
+fn source_span_rejects_reversed_offsets_without_panicking() {
+    let error =
+        SourceSpan::new(test_source_id(), 9, 4).expect_err("a reversed span must be rejected");
 
     assert_eq!(error.start(), 9);
     assert_eq!(error.end(), 4);
@@ -35,8 +47,8 @@ fn span_rejects_reversed_offsets_without_panicking() {
 
 #[test]
 fn diagnostic_exposes_its_complete_structure_without_cli() {
-    let primary_span = Span::new(12, 15).expect("the primary span is valid");
-    let secondary_span = Span::new(0, 5).expect("the secondary span is valid");
+    let primary_span = span(12, 15);
+    let secondary_span = span(0, 5);
     let diagnostic = Diagnostic::new(
         Severity::Warning,
         ErrorCode::TypeMismatch,
@@ -62,7 +74,7 @@ fn diagnostic_exposes_its_complete_structure_without_cli() {
 
 #[test]
 fn error_constructor_sets_error_severity() {
-    let span = Span::empty(0);
+    let span = SourceSpan::empty(test_source_id(), 0);
     let diagnostic = Diagnostic::error(
         ErrorCode::MissingOutput,
         "missing out binding",
@@ -70,6 +82,8 @@ fn error_constructor_sets_error_severity() {
     );
 
     assert_eq!(diagnostic.severity(), Severity::Error);
+    assert_eq!(diagnostic.code(), ErrorCode::MissingOutput);
+    assert_eq!(diagnostic.primary().span(), span);
     assert!(diagnostic.secondary().is_empty());
     assert!(diagnostic.notes().is_empty());
 }
@@ -119,45 +133,24 @@ fn error_codes_match_the_specification_and_are_unique() {
 }
 
 #[test]
-fn spec_4_3_line_column_counts_unicode_characters_and_crlf_once() {
-    let source = "aé\r\n\tb";
-    let cases = [
-        (0, LineColumn::new(1, 1)),
-        (1, LineColumn::new(1, 2)),
-        (5, LineColumn::new(2, 1)),
-        (6, LineColumn::new(2, 2)),
-        (7, LineColumn::new(2, 3)),
-    ];
-
-    for (offset, expected) in cases {
-        assert_eq!(line_column(source, offset), Some(expected));
-    }
-}
-
-#[test]
-fn spec_4_3_line_column_handles_lone_cr_and_invalid_offsets() {
-    assert_eq!(line_column("a\rb", 2), Some(LineColumn::new(1, 3)));
-    assert_eq!(line_column("é", 1), None);
-    assert_eq!(line_column("é", 3), None);
-}
-
-#[test]
 fn spec_6_2_renderer_associates_the_caret_with_the_primary_label() {
     let source = include_str!("../fixtures/invalid/stage-01-duplicate-out.ln");
+    let mut sources = SourceMap::new();
+    let source_id = sources.add_source("duplicate-out.ln", source);
+    let primary_span = SourceSpan::new(source_id, 17, 20).expect("the primary span is valid");
     let diagnostic = Diagnostic::error(
         ErrorCode::MultipleOutputs,
         "multiple out bindings",
-        DiagnosticLabel::new(
-            Span::new(17, 20).expect("the primary span is valid"),
-            "the second out binding is here",
-        ),
+        DiagnosticLabel::new(primary_span, "the second out binding is here"),
     )
     .with_secondary(DiagnosticLabel::new(
-        Span::new(4, 7).expect("the secondary span is valid"),
+        SourceSpan::new(source_id, 4, 7).expect("the secondary span is valid"),
         "the first out binding is here",
     ));
 
-    let rendered = render_diagnostic("duplicate-out.ln", source, &diagnostic);
+    assert_eq!(diagnostic.code(), ErrorCode::MultipleOutputs);
+    assert_eq!(diagnostic.primary().span(), primary_span);
+    let rendered = render_diagnostic(&sources, &diagnostic).expect("the diagnostic should render");
 
     assert_eq!(
         rendered.lines().next(),

@@ -3,7 +3,7 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.2.0
+- Версия спецификации: 0.2.1
 - Дата: 2026-11-16
 - Рабочее название: **linen**
 - Репозиторий: `linen`
@@ -12,7 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
-- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A специфицирован, но не реализован; этап 2 начинается после его приёмки
+- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A завершён по спецификации 0.2.1; этап 2 начинается только по явной задаче
 
 ## 0. Как читать документ
 
@@ -188,7 +188,7 @@ linen run beep.ln --output beep.wav
 | Семпл | Одно мгновенное значение аудиосигнала. В VM представлено `f32`. |
 | Sample rate | Количество семплов в секунду. По умолчанию 48 000 Гц. |
 | Аудиоблок | Последовательность семплов, обрабатываемая за один вызов VM. Размер блока не входит в семантику языка. |
-| `SourceId` | Компактный идентификатор источника, уникальный только внутри одной компиляции. Не является package/module ID. |
+| `SourceId` | Компактный детерминированный индекс источника внутри создавшей его `SourceMap`. Независимые карты могут выдавать равные ID. ID действителен только в исходной карте или её идентичной копии и не является package/module ID. |
 | `SourceFile` | Загруженный UTF-8 текст, `SourceId`, логическое имя и line index. |
 | `SourceMap` | Владеющая источниками коллекция одной компиляции; связывает `SourceId` с `SourceFile`. |
 | `SourceSpan` | `SourceId` и полуинтервал байтовых offsets `[start, end)` внутри соответствующего источника. |
@@ -537,7 +537,7 @@ render 4s;
 4. **Верификация границ.** После lowering, каждого оптимизационного pass и codegen в test/debug-сборках запускается соответствующий verifier.
 5. **Семантические тесты через библиотеку.** CLI-тесты проверяют только CLI-контракт, а не дублируют весь компилятор.
 6. **Никаких глобальных mutable singletons.** Конфигурация, sources, builtins, состояние VM, diagnostics и symbol storage передаются явно. Глобальные interner, текущий файл и random запрещены.
-7. **Никаких скрытых fallback.** Ошибочная программа не превращается в тишину, неизвестный `SourceId` не подменяется другим источником, а неизвестная инструкция не игнорируется.
+7. **Никаких скрытых fallback.** Ошибочная программа не превращается в тишину, `SourceId` с отсутствующим в данной `SourceMap` индексом не подменяется другим источником, а неизвестная инструкция не игнорируется. ID из независимой карты с совпадающим существующим индексом находится вне контракта API и не считается detectable unknown ID.
 8. **Production и test oracle неразделимы по назначению, но разделены по коду.** Differential-тест не должен вычислять ожидаемое значение той же функцией, которую проверяет.
 9. **Оптимизация не меняет семантику.** Для каждого pass существует differential/property suite.
 10. **Сначала корректность, затем скорость.** Любая оптимизация сопровождается доказательством эквивалентности на существующем наборе тестов.
@@ -789,11 +789,12 @@ render(program, config, Write)
 Точные Rust-сигнатуры определяются вручную при реализации. Требования к facade:
 
 - простой `check`/`compile` создаёт `CompileSession` с одним источником; source-aware вариант принимает явное logical name и конфигурацию;
-- source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Session-based caller удерживает сам session; unknown `SourceId` на session boundary возвращает typed session error, а не diagnostic с неразрешимым span;
+- source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Session-based caller удерживает сам session и передаёт только её IDs. Result из outcome разрешается через карту того же outcome или её идентичную копию;
+- `SourceId` является map-local индексом. Независимые `SourceMap` могут выдавать равные ID, поэтому передача ID в другую session/outcome находится вне контракта API. Lookup, session и renderer проверяют наличие индекса, а не происхождение ID. Unknown `SourceId` означает отсутствующий в данной карте индекс и возвращает typed session/render error, а не diagnostic с неразрешимым span; foreign same-index ID не обязан обнаруживаться;
 - `CompileSession` владеет `SourceMap` и `CompileConfig`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery; symbol storage добавляется вместе с resolver, без пустых полей заранее;
 - parser и последующие стадии получают уже загруженный текст/`SourceId` и не открывают файлы;
 - diagnostics не выводятся в stdout из глубины компилятора;
-- renderer разрешает primary span через `SourceMap`; неизвестный источник и невалидный offset являются явной ошибкой, а не поводом выбрать другой источник или вызвать panic;
+- renderer разрешает primary span через `SourceMap`, которой принадлежат все label IDs; отсутствующий в карте индекс и невалидный offset являются явной ошибкой, а не поводом выбрать другой источник или вызвать panic;
 - запись WAV принимает `Write`, поэтому тестируется через `Vec<u8>` без временных файлов;
 - CLI является тонкой обёрткой и единственным текущим host boundary для чтения `.ln`;
 - внутренние AST/IR не экспортируются как стабильный публичный API без необходимости.
@@ -939,7 +940,7 @@ secondary: ноль или более связанных SourceSpans
 notes: дополнительные подсказки
 ```
 
-Каждый label сохраняет `SourceId`; offsets интерпретируются только внутри этого источника. `SourceMap` связывает span с `SourceFile` и его logical name. Одинаковые offsets и одинаковые logical names в разных synthetic sources не смешивают diagnostics. Lookup/rendering неизвестного ID или offset вне UTF-8/source boundaries возвращает явную ошибку, а не panic или silently selected source.
+Каждый label сохраняет `SourceId`; offsets интерпретируются только внутри этого источника. `SourceMap` связывает span с `SourceFile` и его logical name. Одинаковые offsets и одинаковые logical names у разных synthetic sources в одной карте не смешивают diagnostics. Все label IDs передаются renderer вместе с создавшей их картой или её идентичной копией; IDs из независимых карт могут совпадать и не имеют проверяемого provenance. Lookup/rendering отсутствующего в карте индекса ID или offset вне UTF-8/source boundaries возвращает явную ошибку, а не panic или silently selected source. Foreign same-index ID находится вне контракта и не обязан давать typed error.
 
 Категории кодов:
 
@@ -1033,7 +1034,7 @@ deterministic: true
 | Синтаксис уже реализованных программ | Не ломать без изменения спеки и changelog; резервирование четырёх слов в 0.2.0 — задокументированный break |
 | Типовые правила | Не ослаблять/усиливать неявно |
 | Коды diagnostics | Стабильны после введения |
-| `SourceId` | Стабилен только внутри одной компиляции; не глобальный package/module ID |
+| `SourceId` | Детерминированный map-local индекс; действителен только в создавшей его `SourceMap` или её идентичной копии. Независимые карты могут выдавать равные ID; не глобальный package/module ID |
 | Byte offsets и диагностический смысл `SourceSpan` | Стабильны; Source identity обязательна |
 | Порядок diagnostics/artifacts | Детерминирован по явному контракту |
 | Точное оформление diagnostics | Можно улучшать с осознанным snapshot update |
@@ -1090,11 +1091,11 @@ API compatibility и render compatibility не подменяют друг др�
 #### Источники и детерминированные diagnostics
 
 - один `SourceFile` проходит через ту же `SourceMap`-модель, что и несколько synthetic sources;
-- два источника с одинаковым logical name и одинаковыми offsets различаются по `SourceId`;
-- ID выдаются детерминированно внутри session и не используются как глобальные package/module IDs;
-- пустой, обычный и EOF `SourceSpan`, reversed offsets, unknown `SourceId`, offset вне source и не-UTF-8 boundary;
+- два источника в одной карте с одинаковым logical name и одинаковыми offsets различаются по `SourceId`;
+- ID выдаются детерминированно внутри session и не используются как глобальные package/module IDs; независимые карты с одинаковым порядком добавления могут выдавать равные ID, которые не используются друг в друге;
+- пустой, обычный и EOF `SourceSpan`, reversed offsets, отсутствующий в карте индекс `SourceId`, offset вне source и не-UTF-8 boundary;
 - Unicode scalar columns, LF, CRLF, lone CR и tab через line index;
-- primary diagnostic renderer выбирает источник по ID и явно сообщает о невалидной связи без panic;
+- primary diagnostic renderer выбирает источник по ID и явно сообщает об отсутствующем индексе или невалидном offset без panic; foreign same-index IDs не используются как negative cases, поскольку такие вызовы вне контракта;
 - lexer/parser получают in-memory source и явный `SourceId`; arbitrary tokens из другого источника дают детерминированный `E1100`, а не смешанный span или panic;
 - одинаковый `check` повторяется в одном process и в разных processes с одинаковым результатом и порядком diagnostics;
 - физический absolute path не попадает в structured semantic artifact; однофайловый CLI показывает logical `file_name`;
@@ -1547,7 +1548,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 1A — SourceMap и явный контекст компиляции
 
-**Статус:** специфицирован, не реализован. Обязателен перед этапом 2. Подробный контракт: `docs/development/stages/stage-01a-ecosystem-foundation.md`; архитектурное решение: ADR 0012.
+**Статус:** завершён по `SPEC.md` 0.2.1. Этап 2 начинается только по явной задаче. Подробный контракт и фактическая приёмка: `docs/development/stages/stage-01a-ecosystem-foundation.md`; архитектурное решение: ADR 0012.
 
 **Цель:** устранить однофайловые ограничения завершённых этапов 0–1 до появления Typed AST и IR, не реализуя модульную или пакетную систему.
 
@@ -1557,7 +1558,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 - перевести tokens, AST и diagnostic labels на `SourceSpan`, сохранив byte offsets и diagnostic codes;
 - явно передавать `SourceId` в lexer/parser; детерминированно отклонять смешанный arbitrary token stream без panic;
 - создать реальный `CompileSession` с `SourceMap` и `CompileConfig`; простой `check` создаёт один in-memory источник;
-- разрешать diagnostics через `SourceMap` и logical source name; unknown source/invalid offsets обрабатывать явно;
+- разрешать diagnostics через `SourceMap` и logical source name; отсутствующие в карте индексы ID/invalid offsets обрабатывать явно;
+- зафиксировать map-local область `SourceId`: независимые карты могут выдавать равные ID, а передача ID в чужую карту находится вне контракта; глобальный provenance не добавляется;
 - оставить файловый I/O только в CLI host boundary, использовать logical `file_name` для однофайлового source diagnostic;
 - зарезервировать `export`, `package`, `from`, `as` как token kinds без добавления module/package grammar;
 - гарантировать детерминированный порядок diagnostics и отсутствие влияния absolute path/hash iteration/system time/network.
@@ -1574,7 +1576,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 **DoD:**
 
 - один файл использует ту же `SourceMap`-модель, что и несколько synthetic sources;
-- два независимых `SourceFile` однозначно различаются diagnostics даже при одинаковых logical names и offsets;
+- два `SourceFile` в одной карте однозначно различаются diagnostics даже при одинаковых logical names и offsets;
+- map-local область `SourceId`, возможность равных ID в независимых картах и смысл unknown index задокументированы в SPEC/ADR/Rust API;
 - все tokens, AST nodes и diagnostic labels сохраняют правильный `SourceId`; LF/CRLF/Unicode locations не изменились;
 - parser/lexer/renderer не выполняют I/O и не выбирают источник по имени или absolute path;
 - повторный `check` в одном и разных processes детерминирован;
@@ -2030,9 +2033,9 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ## 14. Ближайший практический порядок действий
 
-1. Этапы 0 и 1 завершены; сохранить их исторические отчёты и исходные проверки.
-2. Человеку реализовать этап 1A по `docs/development/stages/stage-01a-ecosystem-foundation.md` и ADR 0012. Агенту отдельными задачами поручить SourceMap/multi-source/determinism/keyword tests и read-only I/O review.
-3. Выполнить DoD 1A и только затем вручную реализовать типы, resolved IDs, наивный `sine` interpreter и WAV этапа 2.
+1. Этапы 0, 1 и 1A завершены; сохранить их исторические отчёты и исходные проверки. Итоговая приёмка 1A находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
+2. Область `SourceId` уточнена в спецификации 0.2.1 и ADR 0012: IDs остаются детерминированными map-local индексами и используются только с исходной картой; глобальный provenance не добавляется.
+3. Реализовать типы, resolved IDs, наивный `sine` interpreter и WAV этапа 2 только по отдельной явной задаче после принятия 1A.
 4. Поручить агенту type/builtin descriptor tests, аналитические audio tests, WAV tests и CLI tests.
 5. Получить стабильный Beep и только затем начать IR/VM с `NodeOrigin`, capability/resource classification и versioned persisted format, если persistence появится.
 6. Во время VM-этапа основную часть агентской работы направить на reference interpreter, block partitions, reset, origins, verifiers, determinism и differential generation.
@@ -2040,6 +2043,15 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 8. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.2.1 — 2026-11-16
+
+- Изменение: этап 1A реализован и отмечен завершённым. После ревью явно зафиксирована map-local область `SourceId`: независимые `SourceMap` могут выдавать равные индексы, ID действителен только в исходной карте или её идентичной копии, а unknown ID означает отсутствующий в карте индекс. Передача foreign same-index ID находится вне контракта API; глобальный provenance и mutable ID generator не добавляются.
+- Причина: синхронизировать фактический статус этапа и устранить неоднозначность требования обнаруживать чужие IDs без нарушения детерминизма и запрета глобального mutable state.
+- Затронутые контракты: §0, §3, §5.2, §5.8, §6.2, §6.5, §7.3, §9 (этап 1A), §14; Rust docs `source`, `api` и `diagnostic`.
+- Совместимость: поведение `.ln`-программ, diagnostic codes, byte offsets, CLI и determinism не меняются. Нестабильный Rust API получает явное ownership-ограничение: AST/diagnostics разрешаются через карту той же session/outcome или её идентичную копию. Уточнение не добавляет гарантию обнаружения cross-map misuse с совпадающим индексом.
+- Новые/изменённые тесты: сохранены 69 integration tests и существующие boundary cases с отсутствующими индексами. Foreign same-index IDs не используются как negative cases; поведение production-кода и число tests не менялись.
+- Связанный ADR: `0012` с уточнением области `SourceId`.
 
 ### 0.2.0 — 2026-11-16
 

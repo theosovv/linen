@@ -4,15 +4,32 @@ use linen::syntax::{
     BinaryOp, DurationUnit, Expr, ExprKind, ParserConfig, Token, TokenKind, TypeName, UnaryOp,
     parse, parse_tokens_with_config, parse_with_config,
 };
-use linen::{ErrorCode, Span};
+use linen::{ErrorCode, SourceId, SourceMap, SourceSpan};
 
-fn span(start: usize, end: usize) -> Span {
-    Span::new(start, end).expect("the test span is valid")
+fn test_source_id() -> SourceId {
+    let mut sources = SourceMap::new();
+    sources.add_source("test.ln", "")
+}
+
+fn span_for(source: SourceId, start: usize, end: usize) -> SourceSpan {
+    SourceSpan::new(source, start, end).expect("the test span is valid")
+}
+
+fn span(start: usize, end: usize) -> SourceSpan {
+    span_for(test_source_id(), start, end)
+}
+
+fn empty_span_for(source: SourceId, offset: usize) -> SourceSpan {
+    SourceSpan::empty(source, offset)
+}
+
+fn empty_span(offset: usize) -> SourceSpan {
+    empty_span_for(test_source_id(), offset)
 }
 
 fn expression(source: &str) -> Expr {
     let source = format!("let out = {source}; render 1s;");
-    let program = parse(&source).expect("the expression should parse");
+    let program = parse(&source, test_source_id()).expect("the expression should parse");
     program
         .bindings
         .into_iter()
@@ -32,17 +49,38 @@ fn as_binary(expression: &Expr) -> (BinaryOp, &Expr, &Expr) {
     }
 }
 
-fn assert_parse_error(source: &str, code: ErrorCode, primary: Span) {
-    let diagnostic = parse(source).expect_err("the source should not parse");
+fn assert_parse_error(source: &str, code: ErrorCode, primary: SourceSpan) {
+    let diagnostic = parse(source, test_source_id()).expect_err("the source should not parse");
 
     assert_eq!(diagnostic.code(), code);
     assert_eq!(diagnostic.primary().span(), primary);
 }
 
+fn assert_expression_source(expression: &Expr, source: SourceId) {
+    assert_eq!(expression.span.source(), source);
+
+    match &expression.kind {
+        ExprKind::Number(_) => {}
+        ExprKind::Identifier(identifier) => assert_eq!(identifier.span.source(), source),
+        ExprKind::Call { callee, arguments } => {
+            assert_eq!(callee.span.source(), source);
+            for argument in arguments {
+                assert_expression_source(argument, source);
+            }
+        }
+        ExprKind::Unary { operand, .. } => assert_expression_source(operand, source),
+        ExprKind::Binary { left, right, .. } => {
+            assert_expression_source(left, source);
+            assert_expression_source(right, source);
+        }
+        ExprKind::Group(inner) => assert_expression_source(inner, source),
+    }
+}
+
 #[test]
 fn spec_4_3_beep_fixture_builds_the_expected_ast() {
     let source = include_str!("../fixtures/valid/stage-01-beep.ln");
-    let program = parse(source).expect("Beep should parse");
+    let program = parse(source, test_source_id()).expect("Beep should parse");
 
     assert_eq!(program.span, span(0, 37));
     assert_eq!(program.bindings.len(), 1);
@@ -126,7 +164,8 @@ fn spec_4_3_parentheses_and_unary_minus_preserve_their_structure() {
 
 #[test]
 fn spec_4_3_type_annotations_and_negative_durations_are_syntax() {
-    let program = parse("let out: Sig = 1; render - 0s;").expect("syntax should parse");
+    let program =
+        parse("let out: Sig = 1; render - 0s;", test_source_id()).expect("syntax should parse");
 
     let annotation = program.bindings[0]
         .annotation
@@ -169,7 +208,7 @@ fn spec_4_3_missing_and_trailing_call_arguments_are_e1100() {
     assert_parse_error(
         "let out = sine(1",
         ErrorCode::UnexpectedToken,
-        Span::empty(16),
+        empty_span(16),
     );
 }
 
@@ -191,21 +230,21 @@ fn spec_4_3_only_an_identifier_can_be_a_call_target() {
 #[test]
 fn spec_4_3_missing_semicolon_is_e1101_at_the_next_token() {
     let source = include_str!("../fixtures/invalid/stage-01-missing-semicolon.ln");
-    assert_parse_error(source, ErrorCode::MissingSemicolon, Span::empty(12));
-    assert_parse_error("let out = 1", ErrorCode::MissingSemicolon, Span::empty(11));
+    assert_parse_error(source, ErrorCode::MissingSemicolon, empty_span(12));
+    assert_parse_error("let out = 1", ErrorCode::MissingSemicolon, empty_span(11));
 }
 
 #[test]
 fn spec_4_3_render_is_checked_before_out_and_must_be_final() {
-    assert_parse_error("", ErrorCode::MissingOrMisplacedRender, Span::empty(0));
+    assert_parse_error("", ErrorCode::MissingOrMisplacedRender, empty_span(0));
     assert_parse_error(
         "let out = 1;",
         ErrorCode::MissingOrMisplacedRender,
-        Span::empty(12),
+        empty_span(12),
     );
 
     let misplaced = include_str!("../fixtures/invalid/stage-01-misplaced-render.ln");
-    let diagnostic = parse(misplaced).expect_err("render must be final");
+    let diagnostic = parse(misplaced, test_source_id()).expect_err("render must be final");
     assert_eq!(diagnostic.code(), ErrorCode::MissingOrMisplacedRender);
     assert_eq!(diagnostic.primary().span(), span(0, 6));
     assert_eq!(diagnostic.secondary().len(), 1);
@@ -217,7 +256,7 @@ fn spec_4_3_missing_and_duplicate_out_have_stable_spans() {
     assert_parse_error("render 1s;", ErrorCode::MissingOutput, span(0, 6));
 
     let source = include_str!("../fixtures/invalid/stage-01-duplicate-out.ln");
-    let diagnostic = parse(source).expect_err("duplicate out should fail");
+    let diagnostic = parse(source, test_source_id()).expect_err("duplicate out should fail");
     assert_eq!(diagnostic.code(), ErrorCode::MultipleOutputs);
     assert_eq!(diagnostic.primary().span(), span(17, 20));
     assert_eq!(diagnostic.secondary().len(), 1);
@@ -240,9 +279,53 @@ fn spec_4_3_top_level_expressions_and_durations_outside_render_are_rejected() {
 }
 
 #[test]
+fn spec_4_3_stage_1a_reserved_words_are_rejected_as_declaration_names() {
+    let cases = [
+        (
+            include_str!("../fixtures/invalid/stage-01a-export-identifier.ln"),
+            6,
+        ),
+        (
+            include_str!("../fixtures/invalid/stage-01a-package-identifier.ln"),
+            7,
+        ),
+        (
+            include_str!("../fixtures/invalid/stage-01a-from-identifier.ln"),
+            4,
+        ),
+        (
+            include_str!("../fixtures/invalid/stage-01a-as-identifier.ln"),
+            2,
+        ),
+    ];
+
+    for (source, keyword_len) in cases {
+        assert_parse_error(source, ErrorCode::UnexpectedToken, span(4, 4 + keyword_len));
+    }
+}
+
+#[test]
+fn spec_4_3_stage_1a_keyword_prefix_and_case_variants_remain_identifiers() {
+    let source = include_str!("../fixtures/valid/stage-01a-keyword-prefixes.ln");
+    let program = parse(source, test_source_id()).expect("identifier variants should parse");
+    let names: Vec<_> = program
+        .bindings
+        .iter()
+        .map(|binding| binding.name.name.as_str())
+        .collect();
+
+    assert_eq!(
+        names,
+        [
+            "exported", "package1", "from_", "as2", "Export", "Package", "From", "As", "out",
+        ]
+    );
+}
+
+#[test]
 fn spec_9_stage_1_does_not_run_name_type_or_duration_checks() {
     let source = include_str!("../fixtures/valid/stage-01-semantics-deferred.ln");
-    let program = parse(source).expect("semantic checks belong to stage 2");
+    let program = parse(source, test_source_id()).expect("semantic checks belong to stage 2");
 
     assert_eq!(program.bindings.len(), 4);
     assert_eq!(program.bindings[0].name.name, "value");
@@ -264,8 +347,9 @@ fn spec_10_1_expression_depth_has_an_explicit_boundary_and_e1102() {
     let accepted = "let out = ((1)); render 1s;";
     let rejected = "let out = (((1))); render 1s;";
 
-    parse_with_config(accepted, config).expect("two nested groups should be accepted");
-    let diagnostic = parse_with_config(rejected, config)
+    parse_with_config(accepted, test_source_id(), config)
+        .expect("two nested groups should be accepted");
+    let diagnostic = parse_with_config(rejected, test_source_id(), config)
         .expect_err("the third nested group exceeds the configured depth");
     assert_eq!(diagnostic.code(), ErrorCode::ExpressionDepthLimit);
     assert_eq!(diagnostic.primary().span(), span(12, 13));
@@ -284,8 +368,9 @@ fn spec_10_1_ast_node_limit_has_an_explicit_boundary_and_e1103() {
         ..accepted
     };
 
-    parse_with_config(source, accepted).expect("let, number and render are three nodes");
-    let diagnostic = parse_with_config(source, rejected)
+    parse_with_config(source, test_source_id(), accepted)
+        .expect("let, number and render are three nodes");
+    let diagnostic = parse_with_config(source, test_source_id(), rejected)
         .expect_err("the render declaration exceeds the configured node count");
     assert_eq!(diagnostic.code(), ErrorCode::AstNodeLimit);
     assert_eq!(diagnostic.primary().span(), span(13, 19));
@@ -295,7 +380,7 @@ fn spec_10_1_ast_node_limit_has_an_explicit_boundary_and_e1103() {
 #[test]
 fn spec_6_2_ast_node_limit_uses_the_expression_start_token() {
     let binary = include_str!("../fixtures/valid/stage-01-expression-node-limit.ln");
-    parse(binary).expect("the fixture is valid with the default node limit");
+    parse(binary, test_source_id()).expect("the fixture is valid with the default node limit");
 
     let cases = [
         (binary, 3),
@@ -307,6 +392,7 @@ fn spec_6_2_ast_node_limit_uses_the_expression_start_token() {
     for (source, max_nodes) in cases {
         let diagnostic = parse_with_config(
             source,
+            test_source_id(),
             ParserConfig {
                 max_depth: 128,
                 max_nodes,
@@ -320,8 +406,117 @@ fn spec_6_2_ast_node_limit_uses_the_expression_start_token() {
 }
 
 #[test]
+fn spec_5_8_all_ast_spans_keep_a_nondefault_source_id() {
+    let mut sources = SourceMap::new();
+    sources.add_source("first.ln", "let other = 0;");
+    let source_id = sources.add_source(
+        "second.ln",
+        "let out: Sig = -(sine(440) * (value + 2)); render 1s;",
+    );
+    let program = parse(
+        "let out: Sig = -(sine(440) * (value + 2)); render 1s;",
+        source_id,
+    )
+    .expect("the source should parse");
+
+    assert_eq!(source_id.index(), 1);
+    assert_eq!(program.span.source(), source_id);
+    assert_eq!(program.render.span.source(), source_id);
+    assert_eq!(program.render.duration.span.source(), source_id);
+    assert_eq!(program.bindings.len(), 1);
+
+    let binding = &program.bindings[0];
+    assert_eq!(binding.span.source(), source_id);
+    assert_eq!(binding.name.span.source(), source_id);
+    assert_eq!(
+        binding
+            .annotation
+            .as_ref()
+            .expect("there is a type annotation")
+            .span
+            .source(),
+        source_id
+    );
+    assert_expression_source(&binding.value, source_id);
+}
+
+#[test]
+fn spec_6_2_parser_rejects_the_first_foreign_source_token_without_panicking() {
+    let expected = test_source_id();
+    let foreign = {
+        let mut sources = SourceMap::new();
+        sources.add_source("first.ln", "");
+        sources.add_source("foreign.ln", "")
+    };
+    let foreign_span = span_for(foreign, 4, 7);
+    let tokens = vec![
+        Token::new(TokenKind::Let, span_for(expected, 0, 3)),
+        Token::new(TokenKind::Identifier("out".into()), foreign_span),
+        Token::new(TokenKind::Render, span_for(foreign, 13, 19)),
+    ];
+
+    let result =
+        catch_unwind(|| parse_tokens_with_config(&tokens, expected, ParserConfig::default()));
+    let diagnostic = result
+        .expect("mixed SourceIds must not panic")
+        .expect_err("a foreign SourceId must be rejected");
+
+    assert_eq!(diagnostic.code(), ErrorCode::UnexpectedToken);
+    assert_eq!(diagnostic.primary().span(), foreign_span);
+
+    let repeated = parse_tokens_with_config(&tokens, expected, ParserConfig::default())
+        .expect_err("the same foreign SourceId should be rejected again");
+    assert_eq!(repeated, diagnostic);
+}
+
+#[test]
+fn spec_6_2_empty_token_stream_uses_the_expected_source_for_eof() {
+    let source = {
+        let mut sources = SourceMap::new();
+        sources.add_source("first.ln", "");
+        sources.add_source("empty.ln", "")
+    };
+    let diagnostic = parse_tokens_with_config(&[], source, ParserConfig::default())
+        .expect_err("an empty stream has no render declaration");
+
+    assert_eq!(diagnostic.code(), ErrorCode::MissingOrMisplacedRender);
+    assert_eq!(diagnostic.primary().span(), empty_span_for(source, 0));
+}
+
+#[test]
+fn spec_6_2_missing_eof_keeps_the_existing_valid_program_contract() {
+    let source = test_source_id();
+    let tokens = vec![
+        Token::new(TokenKind::Let, span_for(source, 0, 3)),
+        Token::new(TokenKind::Identifier("out".into()), span_for(source, 4, 7)),
+        Token::new(TokenKind::Equal, span_for(source, 8, 9)),
+        Token::new(TokenKind::Number(1.0), span_for(source, 10, 11)),
+        Token::new(TokenKind::Semicolon, span_for(source, 11, 12)),
+        Token::new(TokenKind::Render, span_for(source, 13, 19)),
+        Token::new(
+            TokenKind::Duration {
+                value: 1.0,
+                unit: DurationUnit::Seconds,
+            },
+            span_for(source, 20, 22),
+        ),
+        Token::new(TokenKind::Semicolon, span_for(source, 22, 23)),
+    ];
+
+    let program = parse_tokens_with_config(&tokens, source, ParserConfig::default())
+        .expect("the existing parser accepts a valid token stream without EOF");
+    assert_eq!(program.span, span_for(source, 0, 23));
+}
+
+#[test]
 fn spec_7_6_parser_does_not_panic_on_deterministic_arbitrary_token_streams() {
     let mut state = 0x4c49_4e45_4e31_u64;
+    let expected_source = test_source_id();
+    let foreign_source = {
+        let mut sources = SourceMap::new();
+        sources.add_source("first.ln", "");
+        sources.add_source("foreign.ln", "")
+    };
 
     for case_index in 0..64 {
         let mut tokens = Vec::new();
@@ -348,13 +543,35 @@ fn spec_7_6_parser_does_not_panic_on_deterministic_arbitrary_token_streams() {
                     unit: DurationUnit::Seconds,
                 },
             };
-            tokens.push(Token::new(kind, Span::empty(token_index)));
+            tokens.push(Token::new(
+                kind,
+                SourceSpan::empty(expected_source, token_index),
+            ));
         }
 
-        let result = catch_unwind(|| parse_tokens_with_config(&tokens, ParserConfig::default()));
+        let foreign_span = if case_index % 3 == 1 {
+            let token_index = case_index % tokens.len();
+            let span = SourceSpan::empty(foreign_source, token_index);
+            tokens[token_index].span = span;
+            Some(span)
+        } else {
+            None
+        };
+
+        let result = catch_unwind(|| {
+            parse_tokens_with_config(&tokens, expected_source, ParserConfig::default())
+        });
         assert!(
             result.is_ok(),
             "parser panicked for corpus case {case_index}"
         );
+
+        if let Some(foreign_span) = foreign_span {
+            let diagnostic = result
+                .expect("the parser returned normally")
+                .expect_err("the mixed-source stream should be rejected");
+            assert_eq!(diagnostic.code(), ErrorCode::UnexpectedToken);
+            assert_eq!(diagnostic.primary().span(), foreign_span);
+        }
     }
 }

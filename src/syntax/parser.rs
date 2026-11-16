@@ -1,5 +1,6 @@
 use crate::{
-    Diagnostic, DiagnosticLabel, ErrorCode, Span,
+    Diagnostic, DiagnosticLabel, ErrorCode,
+    source::{SourceId, SourceSpan},
     syntax::{
         BinaryOp, DurationLiteral, Expr, ExprKind, Identifier, LetDecl, RenderDecl, TokenKind,
         TypeAnnotation, TypeName, UnaryOp,
@@ -23,28 +24,34 @@ impl Default for ParserConfig {
     }
 }
 
-pub fn parse(source: &str) -> Result<Program, Diagnostic> {
-    parse_with_config(source, ParserConfig::default())
+pub fn parse(source: &str, source_id: SourceId) -> Result<Program, Diagnostic> {
+    parse_with_config(source, source_id, ParserConfig::default())
 }
 
-pub fn parse_with_config(source: &str, config: ParserConfig) -> Result<Program, Diagnostic> {
-    let tokens = lex(source)?;
-    parse_tokens_with_config(&tokens, config)
+pub fn parse_with_config(
+    source: &str,
+    source_id: SourceId,
+    config: ParserConfig,
+) -> Result<Program, Diagnostic> {
+    let tokens = lex(source, source_id)?;
+    parse_tokens_with_config(&tokens, source_id, config)
 }
 
-pub fn parse_tokens(tokens: &[Token]) -> Result<Program, Diagnostic> {
-    parse_tokens_with_config(tokens, ParserConfig::default())
+pub fn parse_tokens(tokens: &[Token], source_id: SourceId) -> Result<Program, Diagnostic> {
+    parse_tokens_with_config(tokens, source_id, ParserConfig::default())
 }
 
 pub fn parse_tokens_with_config(
     tokens: &[Token],
+    source_id: SourceId,
     config: ParserConfig,
 ) -> Result<Program, Diagnostic> {
-    Parser::new(tokens, config).parse_program()
+    Parser::new(tokens, source_id, config).parse_program()
 }
 
 pub struct Parser<'tokens> {
     tokens: &'tokens [Token],
+    source_id: SourceId,
     current: usize,
     expression_depth: usize,
     nodes: usize,
@@ -52,9 +59,10 @@ pub struct Parser<'tokens> {
 }
 
 impl<'tokens> Parser<'tokens> {
-    pub const fn new(tokens: &'tokens [Token], config: ParserConfig) -> Self {
+    pub const fn new(tokens: &'tokens [Token], source_id: SourceId, config: ParserConfig) -> Self {
         Self {
             tokens,
+            source_id,
             current: 0,
             expression_depth: 0,
             nodes: 0,
@@ -63,6 +71,14 @@ impl<'tokens> Parser<'tokens> {
     }
 
     pub fn parse_program(&mut self) -> Result<Program, Diagnostic> {
+        if let Some(token) = self
+            .tokens
+            .iter()
+            .find(|token| token.span.source() != self.source_id)
+        {
+            return Err(self.unexpected_token(Some(token), Some("tokens from the expected source")));
+        }
+
         let mut bindings = Vec::new();
 
         while matches!(self.peek().map(|token| &token.kind), Some(TokenKind::Let)) {
@@ -108,7 +124,7 @@ impl<'tokens> Parser<'tokens> {
             )));
         }
 
-        let mut first_out: Option<Span> = None;
+        let mut first_out: Option<SourceSpan> = None;
 
         for binding in &bindings {
             if binding.name.name != "out" {
@@ -171,10 +187,11 @@ impl<'tokens> Parser<'tokens> {
         )
     }
 
-    fn eof_span(&self) -> Span {
-        self.tokens
-            .last()
-            .map_or(Span::empty(0), |token| Span::empty(token.span.end()))
+    fn eof_span(&self) -> SourceSpan {
+        self.tokens.last().map_or_else(
+            || SourceSpan::empty(self.source_id, 0),
+            |token| SourceSpan::empty(self.source_id, token.span.end()),
+        )
     }
 
     fn expect(&mut self, kind: TokenKind) -> Result<&'tokens Token, Diagnostic> {
@@ -191,7 +208,7 @@ impl<'tokens> Parser<'tokens> {
         Err(self.unexpected_token(self.peek(), Some(&expected)))
     }
 
-    fn span_here(&self) -> Span {
+    fn span_here(&self) -> SourceSpan {
         self.peek()
             .map_or_else(|| self.eof_span(), |token| token.span)
     }
@@ -219,7 +236,10 @@ impl<'tokens> Parser<'tokens> {
     }
 
     fn missing_semicolon(&self, token: Option<&'tokens Token>) -> Diagnostic {
-        let span = token.map_or_else(|| self.eof_span(), |token| Span::empty(token.span.start()));
+        let span = token.map_or_else(
+            || self.eof_span(),
+            |token| SourceSpan::empty(self.source_id, token.span.start()),
+        );
         Diagnostic::error(
             ErrorCode::MissingSemicolon,
             "missing semicolon",
@@ -227,8 +247,16 @@ impl<'tokens> Parser<'tokens> {
         )
     }
 
-    fn span_between(&self, start: Span, end: Span) -> Result<Span, Diagnostic> {
-        Span::new(start.start(), end.end()).map_err(|_| {
+    fn span_between(&self, start: SourceSpan, end: SourceSpan) -> Result<SourceSpan, Diagnostic> {
+        if start.source() != end.source() {
+            return Err(Diagnostic::error(
+                ErrorCode::UnexpectedToken,
+                "cannot combine spans from different sources",
+                DiagnosticLabel::new(end, "this token belongs to another source"),
+            ));
+        }
+
+        SourceSpan::new(start.source(), start.start(), end.end()).map_err(|_| {
             Diagnostic::error(
                 ErrorCode::UnexpectedToken,
                 "token spans are not ordered",
@@ -237,7 +265,7 @@ impl<'tokens> Parser<'tokens> {
         })
     }
 
-    fn parse_nested_expression(&mut self, opening_span: Span) -> Result<Expr, Diagnostic> {
+    fn parse_nested_expression(&mut self, opening_span: SourceSpan) -> Result<Expr, Diagnostic> {
         if self.expression_depth >= self.config.max_depth {
             return Err(Diagnostic::error(
                 ErrorCode::ExpressionDepthLimit,
@@ -339,7 +367,7 @@ impl<'tokens> Parser<'tokens> {
         )
     }
 
-    fn parse_unary_operand(&mut self, minus_span: Span) -> Result<Expr, Diagnostic> {
+    fn parse_unary_operand(&mut self, minus_span: SourceSpan) -> Result<Expr, Diagnostic> {
         if self.expression_depth >= self.config.max_depth {
             return Err(Diagnostic::error(
                 ErrorCode::ExpressionDepthLimit,
@@ -569,8 +597,8 @@ impl<'tokens> Parser<'tokens> {
     fn make_expr(
         &mut self,
         kind: ExprKind,
-        span: Span,
-        start_span: Span,
+        span: SourceSpan,
+        start_span: SourceSpan,
     ) -> Result<Expr, Diagnostic> {
         if self.nodes >= self.config.max_nodes {
             return Err(Diagnostic::error(
