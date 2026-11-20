@@ -16,8 +16,8 @@
 
 - Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Реализованы diagnostics, tokens/AST, lexer, parser, parser limits, Unicode/CRLF locations, source renderer и команда `check`.
 - Корректирующий этап 1A по `SPEC.md` 0.2.1 завершён: `SourceId`/`SourceFile`/`SourceMap`/`SourceSpan`, line index, явный `CompileSession` и `CheckOutcome`, source-aware diagnostics, детерминированные проверки и reserved words `export`, `package`, `from`, `as`. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Отчёт находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
-- Следующий производственный этап — type checker, resolved IDs, наивный интерпретатор и WAV из этапа 2; начинать его можно только по явной задаче.
-- `run`, `inspect`, type checker, audio и VM ещё не реализованы.
+- Этап 2 завершён по `SPEC.md` 0.3.0. Реализованы resolver/type checker, Typed AST с resolved IDs/lifts, `sine`, наивный interpreter, streaming PCM16 WAV, semantic `check` и `run` с atomic publish. Отчёт и DoD находятся в `docs/development/stages/stage-02-types-interpreter-wav.md`.
+- `inspect`, IR, bytecode и VM ещё не реализованы; этап 3 не начат. Не создавайте их infrastructure без отдельной явной задачи.
 - Не начинайте следующий этап без явной задачи и выполненного DoD предыдущего.
 
 ## Полномочия и границы изменений

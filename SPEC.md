@@ -3,7 +3,7 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.2.1
+- Версия спецификации: 0.3.0
 - Дата: 2026-11-16
 - Рабочее название: **linen**
 - Репозиторий: `linen`
@@ -12,7 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
-- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A завершён по спецификации 0.2.1; этап 2 начинается только по явной задаче
+- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A завершён по спецификации 0.2.1; этап 2 завершён по спецификации 0.3.0, production-реализация и приёмка зафиксированы в stage document; этап 3 не начат
 
 ## 0. Как читать документ
 
@@ -192,8 +192,8 @@ linen run beep.ln --output beep.wav
 | `SourceFile` | Загруженный UTF-8 текст, `SourceId`, логическое имя и line index. |
 | `SourceMap` | Владеющая источниками коллекция одной компиляции; связывает `SourceId` с `SourceFile`. |
 | `SourceSpan` | `SourceId` и полуинтервал байтовых offsets `[start, end)` внутри соответствующего источника. |
-| `CompileSession` | Явный владелец sources и compile configuration; позднее включает diagnostics и symbol storage, когда эти стадии существуют. |
-| `BindingId` / `FunctionId` / `BuiltinId` | Типизированные идентификаторы resolved definitions в явно заданной области, а не глобальные строки. |
+| `CompileSession` | Явный владелец sources, compile configuration и, начиная с этапа 2, symbol storage; diagnostics sink добавляется только вместе с recovery. |
+| `BindingId` / `FunctionId` / `BuiltinId` | Типизированные идентификаторы resolved definitions в явно заданной области, а не глобальные строки. Этап 2 вводит `BindingId`/`BuiltinId` в плоском scope; `FunctionId` и nested scopes появляются с пользовательскими функциями и блоками на этапе 4. |
 | `NodeOrigin` | Происхождение IR-узла: primary `SourceSpan` и, после появления inlining, цепочка call spans либо явный merged/unknown origin. |
 | Source library | Исходные функции, типы и константы, компилируемые вместе с программой. Не native binary и не device package. |
 | Instrument / Preset | Законченный entry point с параметрами/capabilities и отдельные значения параметров по stable IDs. Будущие артефакты. |
@@ -270,7 +270,7 @@ render 4s;
 - Длительность: число с непосредственно следующим суффиксом `ms` или `s`: `250ms`, `2s`, `0.5s`.
 - Суффикс длительности должен заканчиваться на границе идентификатора: следующий символ не может входить в `[A-Za-z0-9_]`. Lexer выделяет duration независимо от контекста, а parser отклоняет его вне `render` как `E1100`.
 - Незавершённая экспонента или дробная часть, повторная точка и непосредственное присоединение identifier-символов к числу (`123abc`, `1sfoo`) — `E1001`. Primary span охватывает весь непрерывный malformed literal, а не только последний символ.
-- Синтаксически корректный литерал не отклоняется из-за переполнения `f64`: `1e999` и `1e999s` могут представляться как infinity и не являются `E1001`. Семантическая проверка длительности выполняется на этапе 2; правило для нечислового обычного `Float` фиксируется отдельно на этапе 2.
+- Синтаксически корректный литерал не отклоняется из-за переполнения `f64`: `1e999` и `1e999s` могут представляться как infinity и не являются `E1001`. На этапе 2 обычный нечисловой `Float` отклоняется как `E2105`, а нечисловая длительность — как `E2103` по правилам §4.4.
 - Комментарий: от `//` до конца строки.
 - Пробелы, табуляции и переводы строк разделяют токены, но не несут семантики.
 - Неизвестный символ — ошибка лексера, а не silently ignored token. Его primary span охватывает весь UTF-8 code point.
@@ -319,7 +319,7 @@ primary_expr    = number
 | `Float` | Число, известное на этапе построения графа. |
 | `Sig` | Поток `f32`, вычисляемый во время рендера. |
 
-Во frontend числовой литерал и compile-time арифметика используют `f64`. При lowering в runtime значение проверяется на конечность и диапазон `f32`; переполнение — ошибка компиляции.
+Во frontend числовой литерал и compile-time арифметика используют `f64`. Литерал и каждая compile-time операция обязаны давать конечный `f64`; NaN/Inf — ошибка `E2105`. Конечный `f64` может превышать диапазон `f32` в промежуточной compile-time арифметике. При каждом lowering `Float → Sig` выполняется checked conversion: если `value as f32` бесконечен, это ошибка `E2105`. Обычное IEEE-округление и underflow конечного значения к нулю не считаются переполнением. Primary span `E2105` — literal, unary/binary expression либо lifted expression, значение которого отклонено.
 
 Встроенная функция Beep:
 
@@ -327,7 +327,7 @@ primary_expr    = number
 sine(freq: Sig): Sig
 ```
 
-Допускается автоматический lift `Float → Sig`, если ожидается `Sig`. Lift создаёт константный сигнал. Обратное неявное преобразование запрещено.
+Допускается автоматический lift `Float → Sig`, если ожидается `Sig`. Lift создаёт константный сигнал и явно представлен узлом `LiftFloatToSig` в Typed AST. Обратное неявное преобразование запрещено.
 
 Правила операторов:
 
@@ -341,14 +341,16 @@ sine(freq: Sig): Sig
 
 Дополнительно:
 
-- деление compile-time константы на ноль — ошибка компиляции;
+- деление compile-time константы на ноль — ошибка `E2104`; она диагностируется до общей проверки конечности результата;
 - деление динамического сигнала на ноль следует IEEE 754 и может создать нечисловое значение;
-- renderer обязан обнаружить NaN/Inf на выходе и завершиться с runtime diagnostic, содержащей sample index;
+- renderer обязан обнаружить NaN/Inf на выходе и завершиться с `E4001`, содержащей zero-based sample index;
 - `out` ожидает тип `Sig`; явная аннотация `out`, если она есть, должна быть `Sig`, а выражение `Float` автоматически поднимается;
-- длительность `render` должна быть конечной и строго положительной;
-- `0ms` и отрицательная длительность запрещены;
-- длительность в семплах вычисляется как `round(duration_seconds * sample_rate)` с проверкой переполнения; округление половин выполняется от нуля;
+- длительность `render` после учёта unit и optional minus должна быть конечной и строго положительной; `0ms`, отрицательная и нечисловая длительность — `E2103`;
+- длительность в семплах вычисляется как `round(duration_seconds * sample_rate)`; округление половин выполняется от нуля;
 - длительность, которая после округления даёт ноль семплов, отклоняется как `E2103`;
+- mathematical sample count должен помещаться в `u64`, а PCM data size и RIFF chunk size — в соответствующие 32-bit fields; переполнение — `E4002`;
+- `check` вычисляет sample count с default sample rate 48 000 Гц, `compile`/`run` — с явно выбранным sample rate;
+- `max_output_seconds` является protective render limit, а не языковым ограничением. Фактическая положительная длительность больше лимита отклоняется перед записью как `E4003`; `check` этот лимит не применяет. Нулевой лимит допустим и отклоняет любую программу;
 - `Bool → Float`, `Bool → Sig` и другие неявные преобразования отсутствуют.
 
 ### 4.5. Функции и блоки — следующий языковой этап
@@ -462,14 +464,16 @@ render 4s;
 
 - phase — `f64`, измеряется в периодах;
 - начальная phase = `0`;
-- текущее значение выхода: `sin(2π × phase)`;
-- после вычисления семпла phase увеличивается на `freq/sample_rate`;
-- phase приводится к диапазону `[0, 1)`;
+- текущее значение выхода: `sin(2π × phase) as f32`;
+- после вычисления семпла phase увеличивается на `freq/sample_rate`, где runtime `freq` переводится в `f64`;
+- phase приводится к диапазону `[0, 1)` через Euclidean modulo;
 - при отрицательной частоте используется корректный modulo, а не отрицательный остаток;
+- нулевая частота при исходном состоянии даёт постоянный ноль;
 - конечная частота выше Nyquist не является ошибкой: синус дискретизируется по той же формуле и естественным образом даёт aliasing;
-- нечисловая частота приводит к диагностируемой runtime-ошибке, а не к молчаливому повреждению состояния.
+- нечисловая частота приводит к `E4001` с primary span frequency expression и zero-based sample index; phase не изменяется на ошибочном семпле;
+- каждый вызов имеет независимое состояние, а числовой алгоритм находится в `dsp`, а не в CLI/WAV.
 
-Повторный рендер того же скомпилированного графа после `reset()` обязан начинаться с исходного состояния. Случайные узлы будущих этапов должны иметь явный seed или получать его из явного `RenderConfig`. Скрытый системный random запрещён.
+Повторный рендер того же скомпилированного графа после `reset()` обязан начинаться с исходного состояния. Случайные узлы будущих этапов должны иметь явный seed или получать его из явного `RenderConfig`. Скрытый системный random запрещён. Подробный state transition зафиксирован в ADR 0006.
 
 Циклы разрешены только через узлы с задержкой. Конструкция вида `let x = x + 1` невозможна из-за отсутствия forward reference. Будущий `feedback` обязан включать задержку минимум на один семпл и иметь явное начальное состояние.
 
@@ -525,7 +529,7 @@ render 4s;
                         Diagnostics/report
 ```
 
-До появления IR и VM допускается короткий путь `Typed AST → naive sample interpreter → WAV`. После появления VM production-путь идёт только через IR и bytecode. Наивный путь сохраняется в test-support как независимый oracle.
+До появления IR и VM используется короткий путь `Typed AST → naive sample interpreter → WAV`. Временный production-интерпретатор этапа 2 находится в `render/interpreter.rs`, не выполняет host I/O и использует числовые алгоритмы `dsp`; он не создаёт IR/bytecode/VM. Независимый reference находится в `test-support/reference` и не разделяет production evaluation/DSP. После появления VM production-путь идёт только через IR и bytecode, а независимый наивный путь сохраняется как oracle. Архитектура Typed AST/lift и граница интерпретатора зафиксированы в ADR 0003.
 
 `SourceMap` уже на однофайловом пути использует ту же модель, которая позднее поддержит несколько источников. Loading выполняется только на host/project boundary. Resolver получает готовые `SourceFile` и будущие логические module IDs, но не загружает и не скачивает зависимости.
 
@@ -664,11 +668,13 @@ Typed AST сохраняет структуру исходника и добав
 
 - `BindingId` конкретной локальной/глобальной привязки вместо повторного поиска по строке;
 - тип каждого выражения;
-- resolved `BuiltinId`/`FunctionId`;
-- исходный `SourceSpan`;
+- resolved `BuiltinId`, а начиная с этапа 4 — `FunctionId`;
+- исходный `SourceSpan` у declarations, expressions и render;
 - явную операцию `LiftFloatToSig`, вставленную type checker.
 
-Неявные преобразования не должны восстанавливаться lowering по догадке: они уже явно присутствуют в Typed AST. ID уникален в явно заданной области компиляции, не является адресом Rust-структуры или random UUID и не влияет на звук через порядок обхода. Строковое имя остаётся частью lookup и diagnostics. Будущий fully-qualified symbol строится из логического module/package ID и локального имени, а не из абсолютного пути.
+На этапе 2 существует один плоский top-level scope. `BindingId` выдаётся детерминированно в порядке declarations начиная с нуля, повторное использование definition сохраняет ID. `FunctionId`, nested scopes, shadowing и связанные identity tests откладываются до этапа 4 вместе с реальным синтаксисом функций и блоков.
+
+Неявные преобразования не должны восстанавливаться lowering по догадке: они уже явно присутствуют в Typed AST. ID уникален в явно заданной области компиляции, не является адресом Rust-структуры или random UUID и не влияет на звук через порядок обхода. Строковое имя остаётся частью lookup и diagnostics. `CompileSession` явно владеет `SymbolStorage`, а source-level compile outcome сохраняет storage вместе с `SourceMap` и результатом. Будущий fully-qualified symbol строится из логического module/package ID и локального имени, а не из абсолютного пути.
 
 Для builtins используется статическая таблица descriptors, а не unrelated `match` с повторным перечислением сигнатур:
 
@@ -788,10 +794,11 @@ render(program, config, Write)
 
 Точные Rust-сигнатуры определяются вручную при реализации. Требования к facade:
 
-- простой `check`/`compile` создаёт `CompileSession` с одним источником; source-aware вариант принимает явное logical name и конфигурацию;
-- source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Session-based caller удерживает сам session и передаёт только её IDs. Result из outcome разрешается через карту того же outcome или её идентичную копию;
+- простой `check`/`compile` создаёт `CompileSession` с одним источником; source-aware вариант принимает явное logical name и конфигурацию. На этапе 2 `check` дополнительно выполняет name/type/duration checks, но может сохранять syntax AST как успешный результат; `compile` возвращает Typed AST;
+- source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Compile outcome также сохраняет `SymbolStorage` для returned resolved IDs. Session-based caller удерживает сам session и передаёт только её IDs. Result из outcome разрешается через карту того же outcome или её идентичную копию;
 - `SourceId` является map-local индексом. Независимые `SourceMap` могут выдавать равные ID, поэтому передача ID в другую session/outcome находится вне контракта API. Lookup, session и renderer проверяют наличие индекса, а не происхождение ID. Unknown `SourceId` означает отсутствующий в данной карте индекс и возвращает typed session/render error, а не diagnostic с неразрешимым span; foreign same-index ID не обязан обнаруживаться;
-- `CompileSession` владеет `SourceMap` и `CompileConfig`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery; symbol storage добавляется вместе с resolver, без пустых полей заранее;
+- `CompileSession` владеет `SourceMap`, `CompileConfig` и начиная с этапа 2 `SymbolStorage`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery;
+- `compile` получает явный `RenderConfig` для sample-rate-dependent проверок и сохраняет его в compiled program. Source-free `RenderConfigError` отличается от source `Diagnostic`; protective max-seconds применяется только перед render;
 - parser и последующие стадии получают уже загруженный текст/`SourceId` и не открывают файлы;
 - diagnostics не выводятся в stdout из глубины компилятора;
 - renderer разрешает primary span через `SourceMap`, которой принадлежат все label IDs; отсутствующий в карте индекс и невалидный offset являются явной ошибкой, а не поводом выбрать другой источник или вызвать panic;
@@ -902,18 +909,20 @@ linen inspect bytecode input.ln
 
 - `--output` обязателен для `run`;
 - `--sample-rate` по умолчанию `48000`, допустимый диапазон `8000..=384000`;
-- `--block-size` по умолчанию `128`, допустимый диапазон определяется VM, но должен включать `1`, `3`, `64`, `128`, `256`;
-- `--max-seconds` по умолчанию `600` и переопределяет защитный лимит длительности;
-- `--force` требуется для перезаписи существующего файла;
+- `--block-size` по умолчанию `128`. На этапе 2 допустимо любое ненулевое значение, представимое как `usize`, включая `1`, `3`, `64`, `128`, `256`; посемпловый interpreter не меняет алгоритм от block size. С появлением VM допустимый диапазон уточняется её контрактом, но обязан включать перечисленные значения;
+- `--max-seconds` по умолчанию `600`, принимает `u64` и переопределяет защитный лимит длительности; `0` допустим и запрещает любой положительный render;
+- некорректные numeric values для `--sample-rate`, `--block-size` и `--max-seconds` — source-free `E4000` с exit code `2`; отсутствующие/duplicate options и unknown flags — обычная usage error с exit code `2`;
+- `--force` требуется для перезаписи существующего файла; попытка перезаписи без него — `E5000` с exit code `2`;
 - успешный `check` ничего не печатает;
-- успешный `run` печатает короткий report: output path, samples, sample rate, duration;
+- успешный `run` печатает в stdout короткий report: output path, samples, sample rate и duration;
 - diagnostics идут в stderr, machine-readable output и `inspect` — в stdout;
-- на этапах 1 и 1A `check` выполняет только lexer, parser и структурные проверки из §4.3; ошибка исходника даёт exit code `1`, ошибка использования или чтения UTF-8 файла — exit code `2` и `E5000`;
-- человекочитаемая syntax diagnostic содержит код, logical source name и 1-based line/column primary span; однофайловый CLI использует `file_name`, а не absolute/canonical path. Файловая `E5000` может содержать фактический путь как host I/O diagnostic. Полное оформление не является стабильным snapshot-контрактом;
+- на этапах 1 и 1A `check` выполнял только lexer, parser и структурные проверки из §4.3. Начиная с этапа 2 `check` также выполняет name/type/duration checks с sample rate 48 000 Гц, но не применяет protective max-seconds;
+- ошибка исходника, типов или рендера даёт exit code `1`; ошибка использования, конфигурации `E4000` или чтения UTF-8 файла — exit code `2`, файловая ошибка использует `E5000`;
+- человекочитаемая source diagnostic содержит код, logical source name и 1-based line/column primary span; однофайловый CLI использует `file_name`, а не absolute/canonical path. Файловая `E5000` может содержать фактический путь как host I/O diagnostic. Source-free `E4000`/`E5000` не получают искусственный span. Полное оформление не является стабильным snapshot-контрактом;
 - package/module commands не добавляются до отдельных экосистемных этапов;
 - человекочитаемый `inspect` не является стабильным snapshot-контрактом, если явно не указано обратное;
-- `run` сначала пишет во временный файл в той же директории и переименовывает только после успешного завершения;
-- после ошибки не остаётся видимого частичного `.wav`;
+- `run` сначала пишет во временный файл в той же директории и переименовывает только после успешного завершения; temporary file удаляется при ошибке;
+- после ошибки не остаётся видимого частичного `.wav`, а существующий destination не должен быть испорчен;
 - CLI не исполняет компиляторную логику самостоятельно.
 
 Exit codes:
@@ -922,14 +931,14 @@ Exit codes:
 |---|---|
 | `0` | Успех |
 | `1` | Ошибка исходника, проверки типов или рендера |
-| `2` | Ошибка использования CLI или файлового I/O |
+| `2` | Ошибка использования CLI, source-free конфигурации `E4000` или файлового I/O `E5000` |
 | `3` | Внутренний инвариант нарушен; это bug компилятора |
 
 Пользовательская ошибка не должна приводить к panic и exit code `101` от Rust.
 
 ### 6.2. Diagnostics
 
-Diagnostic содержит:
+Source diagnostic содержит:
 
 ```text
 severity: Error | Warning | Note
@@ -938,7 +947,10 @@ message: короткое основное сообщение
 primary: SourceSpan + пояснение
 secondary: ноль или более связанных SourceSpans
 notes: дополнительные подсказки
+sample_index: optional zero-based u64 для runtime diagnostics
 ```
+
+`sample_index` обязан присутствовать у `E4001` и отсутствует у остальных текущих source diagnostics; structured assertions не извлекают его из человекочитаемого текста. Source-free configuration и host I/O errors используют собственные typed errors и не получают искусственный `SourceSpan`.
 
 Каждый label сохраняет `SourceId`; offsets интерпретируются только внутри этого источника. `SourceMap` связывает span с `SourceFile` и его logical name. Одинаковые offsets и одинаковые logical names у разных synthetic sources в одной карте не смешивают diagnostics. Все label IDs передаются renderer вместе с создавшей их картой или её идентичной копией; IDs из независимых карт могут совпадать и не имеют проверяемого provenance. Lookup/rendering отсутствующего в карте индекса ID или offset вне UTF-8/source boundaries возвращает явную ошибку, а не panic или silently selected source. Foreign same-index ID находится вне контракта и не обязан давать typed error.
 
@@ -972,9 +984,11 @@ notes: дополнительные подсказки
 | `E2102` | Неизвестная функция |
 | `E2103` | Некорректная длительность |
 | `E2104` | Compile-time деление на ноль |
-| `E4000` | Некорректный sample rate или block size |
-| `E4001` | NaN/Inf на выходе |
-| `E4002` | Переполнение длительности или sample count |
+| `E2105` | Нечисловой compile-time `Float` или значение, которое нельзя представить конечным `f32` при lift |
+| `E4000` | Некорректный sample rate, block size или numeric render option |
+| `E4001` | NaN/Inf в сигнале frequency или на выходе |
+| `E4002` | Переполнение длительности, sample count или RIFF/PCM sizes |
+| `E4003` | Превышен protective `max_output_seconds` |
 | `E5000` | Файловая ошибка |
 
 После появления кода его смысл нельзя незаметно переиспользовать для другой ошибки. Точный текст можно улучшать, но snapshot обновляется осознанно и отдельным изменением.
@@ -991,28 +1005,44 @@ Lexer и parser этапов 1 и 1A завершаются на первой о
 
 Структурные проверки выполняются после синтаксического разбора; сначала проверяется наличие и положение `render`, затем наличие и уникальность `out`. Поэтому пустой файл даёт `E2004`, а не `E2002`. Этот порядок и повторный результат не зависят от source physical path или hash randomization. Перед recovery/несколькими diagnostics их ordering получает отдельный явный контракт.
 
+Семантические проверки этапа 2 также fail-fast и начинаются только после успешных structural checks. Top-level bindings обрабатываются в порядке исходника. Duplicate name сначала проверяется среди предыдущих declarations, затем value разрешается без текущего binding в scope и только после успеха binding добавляется в storage. Поэтому self/forward reference — `E2001`, а duplicate на текущем declaration имеет приоритет над ошибками его value. Вызов сначала разрешает callee (`E2102`), затем проверяет arity (`E2101`), затем аргументы слева направо. После value проверяется аннотация binding; `render` проверяется последним.
+
+Primary `SourceSpan` семантических diagnostics детерминирован:
+
+- `E2000` — identifier повторного binding, identifier первого — secondary;
+- `E2001` — unresolved identifier, включая self/forward reference;
+- `E2102` — unknown callee identifier; `E2101` — callee identifier известной функции с неверной arity;
+- `E2100` в аргументе — expression аргумента; при несовместимой обычной аннотации — value expression, annotation — secondary; для запрещённой явной `out: Float` — сама annotation;
+- `E2104` — zero divisor expression;
+- `E2103`, `E4002`, `E4003` — duration literal без optional minus;
+- `E2105` — нечисловой literal/unary/binary expression либо lifted expression, чья checked `f32` conversion переполняется;
+- `E4001` при нечисловом output — value expression `out`; при нечисловой frequency — expression соответствующего аргумента `sine`. Оба случая содержат фактический zero-based `sample_index`.
+
+`E4003` проверяется после успешной компиляции и до записи WAV header. `E4000` и файловая `E5000` являются source-free host/configuration errors; для них не создаётся фиктивный span. Точные сообщения не закрепляются, но codes, spans, sample index и fail-fast порядок стабильны.
+
 ### 6.3. WAV
 
 Первый backend записывает:
 
-- RIFF/WAVE;
+- RIFF/WAVE с базовым 44-byte header;
 - PCM, format tag `1`;
 - один канал;
 - 16 бит на семпл;
 - little-endian;
 - sample rate из `RenderConfig`;
 - количество семплов заранее вычислено из `render`;
-- потоковая запись без хранения всего аудио в памяти.
+- потоковая запись без хранения всего аудио в памяти;
+- `samples × 2`, `36 + data_size` и `data_size` вычисляются с checked arithmetic до записи и обязаны помещаться в соответствующие `u32` RIFF fields; overflow — `E4002` с primary span duration.
 
 Преобразование `f32 → i16`:
 
 1. если значение NaN или Inf — runtime error `E4001`;
 2. clamp в `[-1.0, 1.0]`;
-3. `(value * 32767.0).round()`;
+3. `(value * 32767.0).round()`, где половины округляются от нуля;
 4. преобразование в `i16`;
 5. запись двух little-endian байтов.
 
-Dithering отсутствует. Стерео и другие форматы добавляются отдельным контрактом. Тесты заголовка используют независимо рассчитанные байты, а не вызов того же WAV-writer для получения expected.
+Dithering отсутствует. Стерео и другие форматы добавляются отдельным контрактом. Тесты заголовка используют независимо рассчитанные байты, а не вызов того же WAV-writer для получения expected. Отдельная low-level quantization function возвращает typed nonfinite error, а render преобразует его в `E4001` с source span/sample index.
 
 ### 6.4. RenderConfig
 
@@ -1025,7 +1055,11 @@ max_output_seconds: u64 = 600
 deterministic: true
 ```
 
-`max_output_seconds` — защита CLI от случайного чрезмерно долгого рендера, а не ограничение языка. Значение может быть увеличено явной опцией. Изменение block size не меняет язык, начальное состояние или random seed.
+`sample_rate` находится в `8000..=384000`. На этапе 2 `block_size` обязан быть ненулевым; посемпловый интерпретатор принимает любое такое значение, представимое как `usize`, и не использует его для изменения алгоритма. Некорректная конфигурация — source-free `E4000`.
+
+`max_output_seconds` — защита CLI/render от случайного чрезмерно долгого рендера, а не ограничение языка. Значение может быть увеличено явной опцией; ноль допустим. Если фактическая `duration_seconds > max_output_seconds`, до записи возвращается `E4003` с primary span duration. `check` этот лимит не применяет.
+
+Текущий runtime всегда детерминирован; отдельного runtime switch, который мог бы отключить детерминизм, не существует. Поле `deterministic` в концептуальной модели означает инвариант, а не обязательный Rust-field до появления random. Изменение block size не меняет язык, начальное состояние или random seed.
 
 ### 6.5. Стабильность контрактов
 
@@ -1136,19 +1170,21 @@ API compatibility и render compatibility не подменяют друг др�
 - `let x = 1;` имеет `Float`;
 - `let x = sine(1);` имеет `Sig`;
 - `Float` автоматически поднимается в аргументе `sine`;
-- смешанная арифметика `Float`/`Sig` даёт `Sig`;
+- смешанная арифметика `Float`/`Sig` даёт `Sig`, включая lift с каждой стороны оператора;
 - `out = Float` допускается через lift;
-- несуществующее имя;
-- ссылка вперёд;
-- дублирование имени;
-- неизвестная функция;
+- несуществующее и самоссылочное имя;
+- прямая и косвенная ссылка вперёд;
+- дублирование имени, включая приоритет duplicate над ошибками value;
+- неизвестная функция и приоритет unknown callee/arity перед аргументами;
 - неверная arity;
-- `out` с аннотацией `Float` и несовместимым выражением;
+- несовместимая обычная аннотация и `out` с аннотацией `Float`;
 - деление константы на ноль;
-- нулевая, отрицательная, переполненная и нечисловая длительность;
-- одинаковые строки в разных scopes получают разные `BindingId`, а повторное использование определения сохраняет ID;
+- нечисловой literal/compile-time result, конечный `f64` с переполнением при `f32` lift, допустимый большой промежуточный `f64` и underflow;
+- нулевая, отрицательная, переполненная, rounded-to-zero и нечисловая длительность;
+- protective max-seconds отдельно от языковой проверки длительности;
+- детерминированные `BindingId` в плоском top-level scope, а повторное использование определения сохраняет ID; nested scopes и `FunctionId` проверяются на этапе 4;
 - `sine` имеет полный базовый `BuiltinDescriptor`, а Typed AST ссылается на `BuiltinId`, не выполняя повторный строковый resolution;
-- каждый Typed AST node сохраняет валидный `SourceSpan`.
+- каждый Typed AST node, включая inserted lifts и render, сохраняет валидный `SourceSpan`.
 
 #### Числовая семантика
 
@@ -1165,13 +1201,13 @@ n = 100 →  0
 Также проверяются:
 
 - усиление `* 0.1`;
-- нулевая частота;
-- отрицательная частота;
+- нулевая, отрицательная и конечная выше-Nyquist частота;
 - фаза остаётся конечной на длинном рендере;
 - длительность `2s` даёт ровно `96000` семплов;
 - `1ms` при 48 кГц даёт `48` семплов;
 - повторный рендер после reset повторяет результат;
-- NaN/Inf на выходе диагностируются с правильным sample index.
+- NaN/Inf на выходе и в frequency диагностируются с правильными primary span и structured sample index, без изменения phase на ошибочном семпле;
+- независимый reference проходит аналитические vectors и не вызывает production DSP/interpreter.
 
 #### WAV
 
@@ -1588,22 +1624,24 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 2 — Типы, наивный интерпретатор и Beep WAV
 
+**Статус:** завершён 2026-11-20 по спецификации 0.3.0. Resolver/type checker, Typed AST/lifts, `sine`, наивный interpreter, streaming WAV и `run` реализованы; regression-исправления и приёмка выполнены. Контракт, исторические результаты подготовки и итоговый отчёт: `docs/development/stages/stage-02-types-interpreter-wav.md`. Этап 3 не начат.
+
 **Цель:** первая законченная вертикаль `source → sound`.
 
 **Production:**
 
-- name resolution в порядке объявлений с `BindingId`, `FunctionId`, `BuiltinId` и явным symbol storage в session;
+- name resolution в порядке объявлений с `BindingId`, `BuiltinId`, плоским top-level scope и явным symbol storage в session;
 - Typed AST с `SourceSpan` и resolved IDs;
 - базовый статический `BuiltinDescriptor` для `sine`;
 - типы `Float` и `Sig`;
 - явный `LiftFloatToSig` в Typed AST;
 - type checking операторов, `sine` и `out`;
-- проверка `render`;
+- проверка `render`, compile-time Float, sample count и protective render limit;
 - наивный sample interpreter;
 - `sine` с определённой фазовой семантикой;
 - streaming PCM16 WAV-writer;
 - `linen run` и атомарная запись результата;
-- runtime NaN/Inf diagnostics.
+- runtime NaN/Inf diagnostics с structured sample index.
 
 **Агенту можно:**
 
@@ -1618,11 +1656,12 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 - Beep example создаёт WAV ровно на 96 000 семплов;
 - частота и усиление проверены численно;
 - все обязательные тесты Beep из §7.3 реализованы;
-- Typed AST сохраняет resolved IDs и `SourceSpan`; одинаковые строки в разных scopes не служат глобальной identity;
+- Typed AST сохраняет resolved `BindingId`/`BuiltinId`, типы, lifts и `SourceSpan`; IDs детерминированы в плоском top-level scope, а повторное использование definition сохраняет ID;
 - базовый descriptor `sine` полон и используется type checker без дублирования сигнатуры;
 - пользовательская ошибка не вызывает panic;
-- повторный запуск даёт тот же звук и не зависит от физического пути/порядка hash iteration;
-- invalid source не создаёт итоговый WAV;
+- повторный запуск даёт тот же звук и не зависит от физического пути/порядка hash iteration/block size;
+- invalid source и runtime failure не создают итоговый WAV;
+- FunctionId, nested scopes и другие возможности этапов 3–4 не реализованы досрочно;
 - `README` содержит только реально работающий пример.
 
 ### Этап 3 — IR, bytecode и блочная VM
@@ -1695,7 +1734,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 - два вызова одной функции не делят node state;
 - повторное использование одной `let`-привязки сохраняет sharing;
 - pipeline эквивалентен явному вызову;
-- resolved `FunctionId`/`BindingId` и call/origin chains ссылаются на правильные определения и `SourceSpan`;
+- resolved `FunctionId`/`BindingId` и call/origin chains ссылаются на правильные определения и `SourceSpan`; одинаковые строки в разных nested scopes получают разные `BindingId`, а повторное использование definition сохраняет ID;
 - recursion получает понятную compile error;
 - предыдущие fixtures и block-invariance tests проходят.
 
@@ -2035,14 +2074,22 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 1. Этапы 0, 1 и 1A завершены; сохранить их исторические отчёты и исходные проверки. Итоговая приёмка 1A находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
 2. Область `SourceId` уточнена в спецификации 0.2.1 и ADR 0012: IDs остаются детерминированными map-local индексами и используются только с исходной картой; глобальный provenance не добавляется.
-3. Реализовать типы, resolved IDs, наивный `sine` interpreter и WAV этапа 2 только по отдельной явной задаче после принятия 1A.
-4. Поручить агенту type/builtin descriptor tests, аналитические audio tests, WAV tests и CLI tests.
-5. Получить стабильный Beep и только затем начать IR/VM с `NodeOrigin`, capability/resource classification и versioned persisted format, если persistence появится.
-6. Во время VM-этапа основную часть агентской работы направить на reference interpreter, block partitions, reset, origins, verifiers, determinism и differential generation.
-7. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
-8. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
+3. Этап 2 завершён 2026-11-20 по спецификации 0.3.0: resolver/type checker, Typed AST/lifts, наивный `sine` interpreter, streaming WAV и CLI реализованы; 121 integration test, общий набор и ручная Beep/atomic/determinism приёмка проходят. Исторический отчёт подготовки и финальная приёмка находятся в `docs/development/stages/stage-02-types-interpreter-wav.md`.
+4. Этап 3 не начат. IR/VM с `NodeOrigin`, capability/resource classification и versioned persisted format, если persistence появится, начинаются только по отдельной явной задаче.
+5. Во время VM-этапа основную часть агентской работы направить на reference interpreter, block partitions, reset, origins, verifiers, determinism и differential generation.
+6. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
+7. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.3.0 — 2026-11-16
+
+- Изменение: начат этап 2 и детализированы Typed AST/lift, плоские `BindingId`/`BuiltinId`, граница naive interpreter, `sine` state/reset, semantic fail-fast order и primary spans, structured `sample_index`, `run`/config/atomic output, duration/sample/RIFF overflow и protective render limit. Добавлены `E2105` для invalid compile-time/runtime-bound Float и `E4003` для превышения `max_output_seconds`. `FunctionId` и nested-scope tests перенесены в этап 4 вместе с реальным синтаксисом.
+- Причина: устранить неоднозначности перед ручной реализацией resolver/type checker/interpreter/DSP/WAV и независимых contract tests.
+- Затронутые контракты: §0, §3–§4.4, §4.8, §5.1, §5.5, §5.8, §6.1–§6.5, §7.3, §9 (этапы 2 и 4), §14; новые ADR 0003, 0006 и 0009.
+- Совместимость: уже реализованные syntax/source/diagnostic codes и spans не меняются. После production-реализации `check` намеренно начнёт отклонять программы с отложенной семантикой этапа 2; это следующий запланированный этап, а не скрытое ослабление parser. Перенос FunctionId/nested scopes не ломает production, поскольку эти возможности ещё не реализованы. Новые diagnostic codes не переиспользуют существующие.
+- Новые/изменённые тесты: добавлены Typed AST/IDs/lifts, semantic spans/order, Float/duration boundaries, analytic sine/reset/nonfinite cases, independent reference, manual WAV bytes, CLI config/atomicity/determinism. Всего 116 integration tests компилируются; 77 passed, 39 ожидаемых failed до production-реализации, 0 ignored. Это результат подготовительной задачи, а не зелёная приёмка этапа.
+- Связанные ADR: `0003`, `0006`, `0009`; сохраняются ограничения `0001`, `0002`, `0011`, `0012`.
 
 ### 0.2.1 — 2026-11-16
 

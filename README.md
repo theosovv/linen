@@ -4,23 +4,24 @@
 
 **linen** — исследовательский некоммерческий проект статически типизированного функционального языка для описания аудиосигналов. Цель разработки — собственные компилятор, блочная виртуальная машина, DSP-узлы и инструменты исследования звука на Rust.
 
-> Этапы 0, 1 и корректирующий этап 1A завершены. Lexer, parser, source-aware diagnostics, `SourceMap`, явный `CompileSession` и команда `check` реализованы и прошли приёмку по `SPEC.md` 0.2.1. Следующий этап 2 — type checking, resolved IDs, наивный интерпретатор и WAV — начинается по отдельной задаче.
+> Этапы 0, 1, корректирующий этап 1A и этап 2 завершены. По `SPEC.md` 0.3.0 реализована первая вертикаль `source → Typed AST → naive interpreter → WAV`: Beep создаёт монофонический PCM16 WAV с частотой дискретизации 48 000 Гц. Этап 3 с IR, bytecode и block VM ещё не начат.
 
 ## Что уже работает
 
-- Rust library и binary в одном package.
-- `SourceId`, `SourceFile`, `SourceMap` и `SourceSpan` с полуинтервальными byte offsets и Source identity через tokens/AST/diagnostics.
+- Rust library и binary в одном package без внешних зависимостей.
+- `SourceId`, `SourceFile`, `SourceMap` и `SourceSpan` с полуинтервальными byte offsets и Source identity через tokens, AST, Typed AST и diagnostics.
 - Предвычисленный line index с Unicode scalar columns, LF/CRLF, lone CR, tab и EOF boundaries.
-- Структурированные `Diagnostic`, severity, диагностические коды и typed errors для невалидных source/span связей.
-- Явный `CompileSession` с `SourceMap` и `CompileConfig`; `CheckOutcome` сохраняет источники вместе с AST или diagnostic.
 - Lexer, AST и recursive descent parser для Beep-синтаксиса, включая лимиты глубины и числа узлов и обработку смешанных synthetic token streams.
-- Человекочитаемый diagnostic renderer, разрешающий источник по `SourceId` и использующий logical source name.
-- `linen check` со структурными проверками `out`/`render`, diagnostics в stderr и кодами выхода из спецификации.
-- Reserved words `export`, `package`, `from` и `as` без добавления module/package grammar.
-- Инфраструктурные `--help` и `--version` у исполняемого файла.
-- Integration tests, doctest, rustfmt, clippy и GitHub Actions CI.
+- Name resolution в плоском top-level scope, детерминированные `BindingId`/`BuiltinId`, session-owned `SymbolStorage` и статический descriptor `sine`.
+- Типы `Float`/`Sig`, checked compile-time arithmetic, явные `LiftFloatToSig`, аннотации и проверка `out`/`render`.
+- Наивный посемпловый interpreter и `sine` с независимой `f64` phase, Euclidean modulo и reset.
+- Потоковая запись mono PCM16 RIFF/WAVE через `Write`, checked sizes, clipping и runtime diagnostics NaN/Inf с structured sample index.
+- Структурированные diagnostics с кодами, primary/secondary labels, notes и logical source names.
+- `linen check` с name/type/duration checks и `linen run` с `--output`, `--sample-rate`, `--block-size`, `--max-seconds` и `--force`.
+- Atomic publish через temporary file в output directory; существующий destination не перезаписывается без `--force`.
+- Integration tests, независимый reference interpreter, doctest, rustfmt, clippy и GitHub Actions CI.
 
-`check` намеренно не выполняет name resolution, type checking или проверку положительности длительности: эта семантика относится к этапу 2. `run` и `inspect` недоступны. Пользовательские multi-file projects и пакетная функциональность также не реализованы; несколько источников поддерживаются на уровне synthetic in-memory compiler tests.
+`inspect`, пользовательские функции и блоки, IR, bytecode, VM, stereo, фильтры и пользовательские multi-file projects ещё не реализованы. Несколько источников поддерживаются на уровне synthetic in-memory compiler tests; модульная и пакетная функциональность отсутствует.
 
 ## Требования
 
@@ -52,15 +53,23 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ## Текущий CLI
 
-Работают инфраструктурные команды и синтаксическая проверка:
+Проверка программы и создание Beep WAV:
 
 ```bash
-cargo run -- --help
-cargo run -- --version
 cargo run -- check fixtures/valid/stage-01-beep.ln
+cargo run -- run fixtures/valid/stage-01-beep.ln --output beep.wav
 ```
 
-После установки binary доступны эквивалентные команды `linen --help`, `linen --version` и `linen check input.ln`. Успешный `check` ничего не печатает. Ошибка исходника возвращает код `1` и diagnostic в stderr; ошибка использования или чтения файла — код `2` и `E5000` для файловой ошибки. Source diagnostic показывает только logical `file_name`; фактический путь остаётся в файловой `E5000`. Нарушение внутреннего renderer invariant возвращает internal error с кодом `3`, без panic.
+После установки binary доступны эквивалентные команды `linen check input.ln` и `linen run input.ln --output output.wav`. Успешный `check` молчит. Успешный `run` печатает output path, число samples, sample rate и duration. Beep из примера создаёт файл размером `44 + 2 × 96000 = 192044` байта.
+
+Дополнительные опции `run`:
+
+```bash
+linen run input.ln --output output.wav --sample-rate 48000 --block-size 128
+linen run input.ln --output output.wav --max-seconds 600 --force
+```
+
+`--force` обязателен для перезаписи существующего destination. При source, runtime или I/O ошибке temporary file удаляется, а прежний destination сохраняется. Source diagnostic возвращает код `1` и выводится в stderr; usage/config/I/O errors возвращают код `2`; нарушение внутреннего renderer invariant — код `3`. Source diagnostics используют logical `file_name`, а не absolute path.
 
 ## Библиотечный API sources и diagnostics
 
@@ -69,12 +78,12 @@ use linen::{Diagnostic, DiagnosticLabel, ErrorCode, SourceMap, SourceSpan};
 
 fn main() {
     let mut sources = SourceMap::new();
-    let source = sources.add_source("input.ln", "let out = 1; render 1s;");
-    let span = SourceSpan::new(source, 4, 7).expect("this literal span is valid");
+    let source = sources.add_source("input.ln", "let out = missing; render 1s;");
+    let span = SourceSpan::new(source, 10, 17).expect("this identifier span is valid");
     let diagnostic = Diagnostic::error(
         ErrorCode::UnknownName,
-        "unknown name",
-        DiagnosticLabel::new(span, "this name is not defined"),
+        "unknown name `missing`",
+        DiagnosticLabel::new(span, "no previous binding defines `missing`"),
     );
 
     assert_eq!(diagnostic.code().as_str(), "E2001");
@@ -82,9 +91,11 @@ fn main() {
 }
 ```
 
-`SourceSpan` — `SourceId` и полуинтервал байтовых offsets `[start, end)`. `SourceMap` выдаёт map-local IDs в порядке добавления и разрешает источники только по ID, допуская duplicate logical names внутри одной карты. Независимые карты могут выдавать равные ID: используйте ID только с создавшей его картой или её идентичной копией. Lookup проверяет наличие индекса, а не происхождение ID. `SourceFile::line_column` вычисляет 1-based Unicode/CRLF locations. `render_diagnostic(&SourceMap, &Diagnostic)` возвращает `Result<String, DiagnosticRenderError>` и не подменяет отсутствующий в карте индекс другим файлом.
+`SourceSpan` — `SourceId` и полуинтервальный диапазон `[start, end)`. `SourceMap` выдаёт map-local IDs в порядке добавления и разрешает источники только по ID, допуская duplicate logical names внутри одной карты. Независимые карты могут выдавать равные ID: используйте ID только с создавшей его картой или её идентичной копией.
 
-`check(source)` создаёт одноисточниковую session с logical name `input.ln` и возвращает `CheckOutcome`. `check_with_config(logical_name, source, config)` принимает явные имя и `CompileConfig`. При session-based API caller сохраняет `CompileSession` до использования AST/diagnostics и не передаёт ID между sessions. Result из `CheckOutcome` разрешается через карту того же outcome; отсутствующий в session индекс возвращает typed `SessionError`.
+`check(source)` создаёт одноисточниковую session и возвращает `CheckOutcome` с `SourceMap` и syntax AST либо diagnostic. `compile(source, RenderConfig)` возвращает `CompileOutcome`, который дополнительно владеет `SymbolStorage` и содержит `CompiledProgram` с Typed AST. `render(&program, writer)` потоково записывает WAV в переданный `Write`.
+
+При session-based API caller сохраняет `CompileSession` и не передаёт IDs между sessions. Semantic compilation начинается с пустого `SymbolStorage`; typed results следует разрешать до следующей semantic compilation в той же session. Source-level outcomes сохраняют собственные sources и symbols, поэтому их независимые результаты можно удерживать одновременно.
 
 ## Структура
 
@@ -100,21 +111,41 @@ linen/
 │   ├── source.rs
 │   ├── api.rs
 │   ├── diagnostic.rs
-│   └── syntax/
+│   ├── syntax/
+│   │   ├── mod.rs
+│   │   ├── token.rs
+│   │   ├── lexer.rs
+│   │   ├── ast.rs
+│   │   └── parser.rs
+│   ├── sema/
+│   │   ├── mod.rs
+│   │   ├── resolve.rs
+│   │   ├── types.rs
+│   │   ├── builtins.rs
+│   │   └── check.rs
+│   ├── dsp/
+│   │   ├── mod.rs
+│   │   └── oscillator.rs
+│   └── render/
 │       ├── mod.rs
-│       ├── token.rs
-│       ├── lexer.rs
-│       ├── ast.rs
-│       └── parser.rs
+│       ├── interpreter.rs
+│       └── wav.rs
 ├── tests/
 │   ├── source.rs
 │   ├── cli.rs
 │   ├── diagnostics.rs
 │   ├── lexer.rs
-│   └── parser.rs
+│   ├── parser.rs
+│   ├── sema.rs
+│   ├── audio.rs
+│   ├── wav.rs
+│   └── reference.rs
+├── test-support/
+│   └── reference/
 ├── fixtures/
 │   ├── valid/
-│   └── invalid/
+│   ├── invalid/
+│   └── regression/
 ├── docs/
 │   ├── linen — подготовка к экосистеме.md
 │   ├── adr/
@@ -124,7 +155,7 @@ linen/
     └── workflows/ci.yml
 ```
 
-Новые модули появляются вместе с реальной функциональностью. Пустых каталогов и placeholder API для будущих стадий в репозитории нет.
+Пустых модулей и production-заглушек для будущих стадий нет. Независимый reference находится только в `test-support` и не используется production interpreter или DSP как общий oracle.
 
 ## Разработка по спецификации
 
@@ -133,9 +164,10 @@ linen/
 - [`docs/development/README.md`](docs/development/README.md) — spec-driven workflow.
 - [`docs/development/task-template.md`](docs/development/task-template.md) — шаблон проверяемой задачи с allowlist.
 - [`docs/development/stages/stage-00-foundation.md`](docs/development/stages/stage-00-foundation.md) — объём, traceability и DoD этапа 0.
-- [`docs/development/stages/stage-01-syntax.md`](docs/development/stages/stage-01-syntax.md) — контракты, состояние реализации, матрица проверки и DoD этапа 1.
-- [`docs/development/stages/stage-01a-ecosystem-foundation.md`](docs/development/stages/stage-01a-ecosystem-foundation.md) — миграция этапов 0–1 и фактический отчёт приёмки 1A.
-- [`docs/adr/`](docs/adr/) — архитектурные решения, включая ADR 0012 о SourceMap/session.
+- [`docs/development/stages/stage-01-syntax.md`](docs/development/stages/stage-01-syntax.md) — объём и приёмка этапа 1.
+- [`docs/development/stages/stage-01a-ecosystem-foundation.md`](docs/development/stages/stage-01a-ecosystem-foundation.md) — миграция этапов 0–1 и приёмка 1A.
+- [`docs/development/stages/stage-02-types-interpreter-wav.md`](docs/development/stages/stage-02-types-interpreter-wav.md) — контракт, DoD и итоговая приёмка этапа 2.
+- [`docs/adr/`](docs/adr/) — архитектурные решения, включая ADR 0003/0006/0009 для этапа 2 и ADR 0012 о SourceMap/session.
 - [`AGENTS.md`](AGENTS.md) — обязательные правила для ИИ-агентов.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — участие человека и делегирование задач агентам.
 
@@ -147,10 +179,11 @@ linen/
 |---|---|---|
 | 0. Каркас и правила проверки | Завершён | Diagnostics, тесты, toolchain и CI |
 | 1. Lexer, parser и синтаксические diagnostics | Завершён | Разбор Beep-синтаксиса без type checking и звука |
-| 1A. SourceMap и явный контекст компиляции | Завершён | Source identity через diagnostics/tokens/AST, session, determinism, четыре новых reserved words |
-| 2. Типы, наивный интерпретатор и Beep WAV | Следующий, по явной задаче | Первая работающая вертикаль `source → sound` |
+| 1A. SourceMap и явный контекст компиляции | Завершён | Source identity, session, determinism, четыре новых reserved words |
+| 2. Типы, наивный интерпретатор и Beep WAV | Завершён | Semantic `check`, Typed AST, `sine`, `run` и PCM16 WAV |
+| 3. IR, bytecode и блочная VM | Не начат | Следующий этап после отдельной явной задачи |
 
-Этапы выполняются последовательно. Текущий Rust API использует `SourceSpan` с `SourceId`; слова `export`, `package`, `from` и `as` зарезервированы и отклоняются на месте identifiers обычным `E1100`. Примеры звука будут добавлены после реализации соответствующих команд.
+Текущий Rust API использует `SourceSpan` с `SourceId`; слова `export`, `package`, `from` и `as` зарезервированы и отклоняются на месте identifiers обычным `E1100`. Следующие этапы начинаются только после отдельной задачи и выполненного DoD предыдущего этапа.
 
 ## Лицензия
 

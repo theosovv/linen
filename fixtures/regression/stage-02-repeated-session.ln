@@ -1,0 +1,3 @@
+let frequency = 480;
+let out = sine(frequency);
+render 1ms;

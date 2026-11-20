@@ -1,0 +1,3 @@
+let value: Float = sine(1);
+let out = 0;
+render 1s;

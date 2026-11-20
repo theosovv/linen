@@ -208,6 +208,25 @@ fn spec_4_3_unknown_ascii_and_unicode_characters_are_e1000() {
 }
 
 #[test]
+fn spec_6_2_lexer_messages_identify_the_invalid_input() {
+    let malformed = lex("123abc", test_source_id()).expect_err("the literal must be rejected");
+    assert_eq!(malformed.message(), "invalid number or duration `123abc`");
+    assert_eq!(
+        malformed.primary().message(),
+        "use forms like `42`, `0.5`, `1e3`, `250ms`, or `2s`"
+    );
+    assert_ne!(malformed.message(), malformed.primary().message());
+
+    let unknown = lex("@", test_source_id()).expect_err("the character must be rejected");
+    assert_eq!(unknown.message(), "unexpected character '@'");
+    assert_eq!(
+        unknown.primary().message(),
+        "this character is not valid in linen source"
+    );
+    assert_ne!(unknown.message(), unknown.primary().message());
+}
+
+#[test]
 fn spec_4_3_unknown_character_fixture_has_the_exact_primary_span() {
     let source = include_str!("../fixtures/invalid/stage-01-unknown-character.ln");
     assert_lex_error(source, ErrorCode::UnknownCharacter, 10, 11);

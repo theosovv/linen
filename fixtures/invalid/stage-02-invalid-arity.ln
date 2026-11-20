@@ -1,0 +1,2 @@
+let out = sine(1, 2);
+render 1s;

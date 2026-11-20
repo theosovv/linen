@@ -249,6 +249,14 @@ fn spec_4_3_render_is_checked_before_out_and_must_be_final() {
     assert_eq!(diagnostic.primary().span(), span(0, 6));
     assert_eq!(diagnostic.secondary().len(), 1);
     assert_eq!(diagnostic.secondary()[0].span(), span(11, 14));
+    assert_eq!(
+        diagnostic.primary().message(),
+        "this render is followed by another declaration"
+    );
+    assert_eq!(
+        diagnostic.secondary()[0].message(),
+        "move this declaration before the render declaration"
+    );
 }
 
 #[test]
@@ -353,6 +361,11 @@ fn spec_10_1_expression_depth_has_an_explicit_boundary_and_e1102() {
         .expect_err("the third nested group exceeds the configured depth");
     assert_eq!(diagnostic.code(), ErrorCode::ExpressionDepthLimit);
     assert_eq!(diagnostic.primary().span(), span(12, 13));
+    assert_eq!(diagnostic.message(), "expression nesting limit exceeded");
+    assert_eq!(
+        diagnostic.primary().message(),
+        "this expression exceeds the configured maximum depth of 2"
+    );
     assert_eq!(ParserConfig::default().max_depth, 128);
 }
 
