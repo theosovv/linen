@@ -95,8 +95,8 @@ impl<'source> Lexer<'source> {
 
                     return Err(self.error(
                         ErrorCode::UnknownCharacter,
-                        "unexpected character",
-                        "this character is not recognized",
+                        format!("unexpected character {ch:?}"),
+                        "this character is not valid in linen source",
                     ));
                 }
             }
@@ -216,10 +216,11 @@ impl<'source> Lexer<'source> {
             self.advance();
         }
 
+        let literal = &self.source[self.start..self.offset];
         self.error(
             ErrorCode::InvalidNumberOrDuration,
-            "invalid number or duration",
-            "expected a valid number or duration",
+            format!("invalid number or duration `{literal}`"),
+            "use forms like `42`, `0.5`, `1e3`, `250ms`, or `2s`",
         )
     }
 

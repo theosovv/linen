@@ -1107,19 +1107,23 @@ regression test по согласованию и опиши необходимо
 7. Ничего пакетного и сетевого не реализуется.
 
 Этап 2:
-8. Resolved names используют BindingId/FunctionId/BuiltinId.
+8. Resolved names используют BindingId/BuiltinId в плоском top-level scope.
 9. Typed AST сохраняет SourceSpan; sine получает базовый BuiltinDescriptor.
 
 Этап 3:
 10. IR сохраняет NodeOrigin; debug origin можно отделить без изменения звука.
 11. IR ops получают capability/resource classification в объёме текущих узлов.
 
+Этап 4:
+12. FunctionId и nested scopes появляются вместе с пользовательскими функциями
+    и блоками; одинаковые имена в разных scopes получают разные BindingId.
+
 Этапы 4+:
-12. Function/call origins и stable random stream identity появляются только
+13. Function/call origins и stable random stream identity появляются только
     вместе с соответствующей функциональностью и ADR.
 ```
 
-Точный объём и DoD ближайшей миграции находятся в `docs/development/stages/stage-01a-ecosystem-foundation.md`. Всё остальное в этом документе — будущие этапы и защита от неверных решений, а не текущий backlog.
+Исторический объём и DoD миграции 1A находятся в `docs/development/stages/stage-01a-ecosystem-foundation.md`; актуальный контракт этапа 2 — в `docs/development/stages/stage-02-types-interpreter-wav.md`. Всё остальное в этом документе — будущие этапы и защита от неверных решений, а не текущий backlog.
 
 ## 14. ADR, которые понадобятся позднее
 

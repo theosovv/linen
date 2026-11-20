@@ -115,12 +115,12 @@ impl<'tokens> Parser<'tokens> {
                 "render declaration must be the last declaration",
                 DiagnosticLabel::new(
                     render_keyword_span,
-                    format!("render must appear after this declaration: {}", token.kind),
+                    "this render is followed by another declaration",
                 ),
             )
             .with_secondary(DiagnosticLabel::new(
                 token.span,
-                "this render declaration is followed by another declaration",
+                "move this declaration before the render declaration",
             )));
         }
 
@@ -269,10 +269,13 @@ impl<'tokens> Parser<'tokens> {
         if self.expression_depth >= self.config.max_depth {
             return Err(Diagnostic::error(
                 ErrorCode::ExpressionDepthLimit,
-                "expression nested limit exceeded",
+                "expression nesting limit exceeded",
                 DiagnosticLabel::new(
                     opening_span,
-                    "this expression exceeds the configured nesting limit",
+                    format!(
+                        "this expression exceeds the configured maximum depth of {}",
+                        self.config.max_depth
+                    ),
                 ),
             ));
         }
@@ -374,7 +377,10 @@ impl<'tokens> Parser<'tokens> {
                 "expression nesting limit exceeded",
                 DiagnosticLabel::new(
                     minus_span,
-                    "this unary expression exceeds the configured nesting limit",
+                    format!(
+                        "this unary expression exceeds the configured maximum depth of {}",
+                        self.config.max_depth
+                    ),
                 ),
             ));
         }

@@ -70,6 +70,20 @@ fn diagnostic_exposes_its_complete_structure_without_cli() {
         diagnostic.notes(),
         ["Float can be lifted to Sig when Sig is expected"]
     );
+    assert_eq!(diagnostic.sample_index(), None);
+}
+
+#[test]
+fn spec_6_2_runtime_sample_index_is_structured_metadata() {
+    let diagnostic = Diagnostic::error(
+        ErrorCode::NonFiniteOutput,
+        "nonfinite output",
+        DiagnosticLabel::new(span(0, 1), "invalid signal"),
+    )
+    .with_sample_index(75);
+
+    assert_eq!(diagnostic.sample_index(), Some(75));
+    assert_eq!(diagnostic.to_string(), "E4001: nonfinite output");
 }
 
 #[test]
@@ -114,9 +128,11 @@ fn error_codes_match_the_specification_and_are_unique() {
         (ErrorCode::UnknownFunction, "E2102"),
         (ErrorCode::InvalidDuration, "E2103"),
         (ErrorCode::ConstantDivisionByZero, "E2104"),
+        (ErrorCode::InvalidFloat, "E2105"),
         (ErrorCode::InvalidRenderConfiguration, "E4000"),
         (ErrorCode::NonFiniteOutput, "E4001"),
         (ErrorCode::RenderOverflow, "E4002"),
+        (ErrorCode::RenderLimitExceeded, "E4003"),
         (ErrorCode::FileIo, "E5000"),
     ];
 
@@ -146,7 +162,8 @@ fn spec_6_2_renderer_associates_the_caret_with_the_primary_label() {
     .with_secondary(DiagnosticLabel::new(
         SourceSpan::new(source_id, 4, 7).expect("the secondary span is valid"),
         "the first out binding is here",
-    ));
+    ))
+    .with_note("exactly one out binding is required");
 
     assert_eq!(diagnostic.code(), ErrorCode::MultipleOutputs);
     assert_eq!(diagnostic.primary().span(), primary_span);
@@ -159,4 +176,6 @@ fn spec_6_2_renderer_associates_the_caret_with_the_primary_label() {
     assert!(rendered.contains("duplicate-out.ln:2:5"));
     assert!(rendered.contains("^ the second out binding is here"));
     assert!(!rendered.contains("^ the first out binding is here"));
+    assert!(rendered.contains("= duplicate-out.ln:1:5: the first out binding is here"));
+    assert!(rendered.contains("= exactly one out binding is required"));
 }

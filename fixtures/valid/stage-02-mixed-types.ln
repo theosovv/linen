@@ -1,0 +1,5 @@
+let frequency: Float = 480;
+let wave: Sig = sine(frequency);
+let gain = 0.1;
+let out = wave * gain + 0.01;
+render 2s;

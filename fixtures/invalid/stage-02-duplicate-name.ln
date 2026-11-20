@@ -1,0 +1,4 @@
+let value = 1;
+let value = 2;
+let out = 0;
+render 1s;

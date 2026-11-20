@@ -48,14 +48,16 @@ pub enum ErrorCode {
     UnknownFunction,
     InvalidDuration,
     ConstantDivisionByZero,
+    InvalidFloat,
     InvalidRenderConfiguration,
     NonFiniteOutput,
     RenderOverflow,
+    RenderLimitExceeded,
     FileIo,
 }
 
 impl ErrorCode {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 22] = [
         Self::UnknownCharacter,
         Self::InvalidNumberOrDuration,
         Self::UnexpectedToken,
@@ -72,9 +74,11 @@ impl ErrorCode {
         Self::UnknownFunction,
         Self::InvalidDuration,
         Self::ConstantDivisionByZero,
+        Self::InvalidFloat,
         Self::InvalidRenderConfiguration,
         Self::NonFiniteOutput,
         Self::RenderOverflow,
+        Self::RenderLimitExceeded,
         Self::FileIo,
     ];
 
@@ -96,9 +100,11 @@ impl ErrorCode {
             Self::UnknownFunction => "E2102",
             Self::InvalidDuration => "E2103",
             Self::ConstantDivisionByZero => "E2104",
+            Self::InvalidFloat => "E2105",
             Self::InvalidRenderConfiguration => "E4000",
             Self::NonFiniteOutput => "E4001",
             Self::RenderOverflow => "E4002",
+            Self::RenderLimitExceeded => "E4003",
             Self::FileIo => "E5000",
         }
     }
@@ -143,6 +149,7 @@ pub struct Diagnostic {
     primary: Box<DiagnosticLabel>,
     secondary: Vec<DiagnosticLabel>,
     notes: Vec<String>,
+    sample_index: Option<u64>,
 }
 
 impl Diagnostic {
@@ -159,6 +166,7 @@ impl Diagnostic {
             primary: Box::new(primary),
             secondary: Vec::new(),
             notes: Vec::new(),
+            sample_index: None,
         }
     }
 
@@ -190,6 +198,10 @@ impl Diagnostic {
         &self.notes
     }
 
+    pub const fn sample_index(&self) -> Option<u64> {
+        self.sample_index
+    }
+
     #[must_use]
     pub fn with_secondary(mut self, label: DiagnosticLabel) -> Self {
         self.secondary.push(label);
@@ -201,7 +213,21 @@ impl Diagnostic {
         self.notes.push(note.into());
         self
     }
+
+    #[must_use]
+    pub fn with_sample_index(mut self, sample_index: u64) -> Self {
+        self.sample_index = Some(sample_index);
+        self
+    }
 }
+
+impl fmt::Display for Diagnostic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: {}", self.code(), self.message())
+    }
+}
+
+impl Error for Diagnostic {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DiagnosticRenderError {
@@ -298,10 +324,6 @@ pub fn render_diagnostic(
     let span = primary.span();
     let source = source_for_span(sources, span)?;
 
-    for label in diagnostic.secondary() {
-        source_for_span(sources, label.span())?;
-    }
-
     let start = span.start();
     let location = source
         .line_column(start)
@@ -331,6 +353,34 @@ pub fn render_diagnostic(
     let _ = writeln!(output, "    |");
     let _ = writeln!(output, "  {line} | {source_line}");
     let _ = writeln!(output, "    |{}^ {}", " ".repeat(column), primary.message());
+
+    for label in diagnostic.secondary() {
+        let span = label.span();
+        let source = source_for_span(sources, span)?;
+        let location =
+            source
+                .line_column(span.start())
+                .ok_or(DiagnosticRenderError::NonUtf8Boundary {
+                    source: span.source(),
+                    offset: span.start(),
+                })?;
+        let _ = writeln!(
+            output,
+            "  = {}:{}:{}: {}",
+            source.logical_name(),
+            location.line,
+            location.column,
+            label.message()
+        );
+    }
+
+    for note in diagnostic.notes() {
+        let _ = writeln!(output, "  = {note}");
+    }
+
+    if let Some(sample_index) = diagnostic.sample_index() {
+        let _ = writeln!(output, "  = sample index: {sample_index}");
+    }
 
     Ok(output)
 }

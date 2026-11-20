@@ -1,0 +1,2 @@
+let out = 1e999;
+render 1s;

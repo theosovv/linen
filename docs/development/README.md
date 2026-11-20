@@ -21,7 +21,7 @@
 
 ## Текущее состояние
 
-Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Корректирующий этап 1A завершён по `SPEC.md` 0.2.1: Source identity, явная session, source-aware diagnostics, determinism и новые reserved words реализованы и проверены. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Объём и фактическая приёмка находятся в [`stages/stage-01a-ecosystem-foundation.md`](stages/stage-01a-ecosystem-foundation.md). Модульная система, manifest, registry и пакетный CLI не реализованы. Следующий этап 2 начинается только по явной задаче.
+Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Корректирующий этап 1A завершён по `SPEC.md` 0.2.1: Source identity, явная session, source-aware diagnostics, determinism и новые reserved words реализованы и проверены. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Объём и фактическая приёмка находятся в [`stages/stage-01a-ecosystem-foundation.md`](stages/stage-01a-ecosystem-foundation.md). Этап 2 завершён по `SPEC.md` 0.3.0: resolver/type checker, Typed AST/lifts, `sine`, наивный interpreter, streaming WAV и `run` реализованы и прошли приёмку. Контракт, исторический отчёт подготовки, финальные результаты и DoD находятся в [`stages/stage-02-types-interpreter-wav.md`](stages/stage-02-types-interpreter-wav.md). Этап 3 не начат; IR, bytecode, VM, модульная система, manifest, registry и пакетный CLI не реализованы.
 
 ## Цикл работы
 
