@@ -1,0 +1,3 @@
+let scale = (x: Float): Float => x * 1e308;
+let out = scale(1e308);
+render 1s;

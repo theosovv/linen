@@ -147,7 +147,7 @@ pub fn codegen(graph: &Graph, output_origin: NodeOrigin) -> Bytecode {
 
         codegen.registers.push(result);
         codegen.instructions.push(instruction);
-        codegen.debug_origins.push(node.origin);
+        codegen.debug_origins.push(node.origin.clone());
     }
 
     let output_source = audio_input(codegen.registers[graph.output.index()]);

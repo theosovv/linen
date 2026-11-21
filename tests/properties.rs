@@ -173,3 +173,32 @@ fn spec_7_6_reset_property_holds_for_generated_programs() {
         }
     }
 }
+
+#[test]
+fn spec_7_6_generated_function_programs_preserve_block_partition_and_verifiers() {
+    let partitions = [1, 2, 7, 3, 16, 5, 1];
+    for seed in 0..12 {
+        let source = generator::function_program(seed);
+        let whole = compile(&source, RenderConfig::default())
+            .expect("the default config is valid")
+            .result
+            .expect("generated function source must compile");
+        let partitioned = compile(
+            &source,
+            RenderConfig {
+                block_size: 16,
+                ..RenderConfig::default()
+            },
+        )
+        .expect("the partition config is valid")
+        .result
+        .expect("repeated function source must compile");
+        verify(&whole.bytecode).expect("generated function bytecode must verify");
+        let expected = render(&whole, &[whole.config.block_size]);
+        let actual = render(&partitioned, &partitions);
+        assert_eq!(actual.len(), expected.len());
+        for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+            assert_close(*actual, *expected, index);
+        }
+    }
+}

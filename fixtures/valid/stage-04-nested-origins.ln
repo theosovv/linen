@@ -1,0 +1,4 @@
+let inner = (x: Sig): Sig => sine(x);
+let outer = (x: Sig): Sig => inner(x) * 0.5;
+let out = 440 |> outer;
+render 1ms;

@@ -1,0 +1,4 @@
+let twice = (x: Sig): Sig => x + x;
+let shared = sine(480);
+let out = twice(shared);
+render 1ms;

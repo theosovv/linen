@@ -59,3 +59,19 @@ fn signal_expr(rng: &mut FixedRng, depth: usize) -> String {
         _ => format!("({left} * {right})"),
     }
 }
+
+pub fn function_program(seed: u64) -> String {
+    let mut rng = FixedRng::new(seed);
+    let base = 120 + rng.below(9) * 20;
+    let frequency = 240 + rng.below(9) * 30;
+    let gain = 1 + rng.below(4);
+    let calls = 1 + rng.below(4) as usize;
+    let mut value = format!("sine({frequency})");
+    for index in 0..calls {
+        value = format!("{value} |> helper({})", index % 3 + 1);
+    }
+
+    format!(
+        "let base = {base};\nlet helper = (x: Sig, gain: Sig): Sig => {{\n  let captured = sine(base);\n  let mixed = x * gain + captured * 0.25;\n  {{\n    let local = mixed * 0.5;\n    local\n  }}\n}};\nlet initial_gain = {gain};\nlet first = helper(sine(base), initial_gain);\nlet out = first + {value};\nrender 1ms;\n"
+    )
+}

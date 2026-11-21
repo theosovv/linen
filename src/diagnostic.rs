@@ -49,6 +49,7 @@ pub enum ErrorCode {
     InvalidDuration,
     ConstantDivisionByZero,
     InvalidFloat,
+    FunctionExpansionLimit,
     InvalidRenderConfiguration,
     NonFiniteOutput,
     RenderOverflow,
@@ -57,7 +58,7 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::UnknownCharacter,
         Self::InvalidNumberOrDuration,
         Self::UnexpectedToken,
@@ -75,6 +76,7 @@ impl ErrorCode {
         Self::InvalidDuration,
         Self::ConstantDivisionByZero,
         Self::InvalidFloat,
+        Self::FunctionExpansionLimit,
         Self::InvalidRenderConfiguration,
         Self::NonFiniteOutput,
         Self::RenderOverflow,
@@ -101,6 +103,7 @@ impl ErrorCode {
             Self::InvalidDuration => "E2103",
             Self::ConstantDivisionByZero => "E2104",
             Self::InvalidFloat => "E2105",
+            Self::FunctionExpansionLimit => "E2106",
             Self::InvalidRenderConfiguration => "E4000",
             Self::NonFiniteOutput => "E4001",
             Self::RenderOverflow => "E4002",

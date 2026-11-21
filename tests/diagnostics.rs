@@ -129,6 +129,7 @@ fn error_codes_match_the_specification_and_are_unique() {
         (ErrorCode::InvalidDuration, "E2103"),
         (ErrorCode::ConstantDivisionByZero, "E2104"),
         (ErrorCode::InvalidFloat, "E2105"),
+        (ErrorCode::FunctionExpansionLimit, "E2106"),
         (ErrorCode::InvalidRenderConfiguration, "E4000"),
         (ErrorCode::NonFiniteOutput, "E4001"),
         (ErrorCode::RenderOverflow, "E4002"),

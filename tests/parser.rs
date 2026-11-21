@@ -31,11 +31,12 @@ fn expression(source: &str) -> Expr {
     let source = format!("let out = {source}; render 1s;");
     let program = parse(&source, test_source_id()).expect("the expression should parse");
     program
-        .bindings
+        .bindings()
         .into_iter()
         .next()
         .expect("there is one binding")
         .value
+        .clone()
 }
 
 fn as_binary(expression: &Expr) -> (BinaryOp, &Expr, &Expr) {
@@ -74,6 +75,12 @@ fn assert_expression_source(expression: &Expr, source: SourceId) {
             assert_expression_source(right, source);
         }
         ExprKind::Group(inner) => assert_expression_source(inner, source),
+        ExprKind::Block { bindings, result } => {
+            for binding in bindings {
+                assert_expression_source(&binding.value, source);
+            }
+            assert_expression_source(result, source);
+        }
     }
 }
 
@@ -83,8 +90,8 @@ fn spec_4_3_beep_fixture_builds_the_expected_ast() {
     let program = parse(source, test_source_id()).expect("Beep should parse");
 
     assert_eq!(program.span, span(0, 37));
-    assert_eq!(program.bindings.len(), 1);
-    let binding = &program.bindings[0];
+    assert_eq!(program.bindings().len(), 1);
+    let binding = &program.bindings()[0];
     assert_eq!(binding.name.name, "out");
     assert_eq!(binding.name.span, span(4, 7));
     assert_eq!(binding.span, span(0, 26));
@@ -167,7 +174,7 @@ fn spec_4_3_type_annotations_and_negative_durations_are_syntax() {
     let program =
         parse("let out: Sig = 1; render - 0s;", test_source_id()).expect("syntax should parse");
 
-    let annotation = program.bindings[0]
+    let annotation = program.bindings()[0]
         .annotation
         .as_ref()
         .expect("there is an annotation");
@@ -317,7 +324,7 @@ fn spec_4_3_stage_1a_keyword_prefix_and_case_variants_remain_identifiers() {
     let source = include_str!("../fixtures/valid/stage-01a-keyword-prefixes.ln");
     let program = parse(source, test_source_id()).expect("identifier variants should parse");
     let names: Vec<_> = program
-        .bindings
+        .bindings()
         .iter()
         .map(|binding| binding.name.name.as_str())
         .collect();
@@ -335,12 +342,12 @@ fn spec_9_stage_1_does_not_run_name_type_or_duration_checks() {
     let source = include_str!("../fixtures/valid/stage-01-semantics-deferred.ln");
     let program = parse(source, test_source_id()).expect("semantic checks belong to stage 2");
 
-    assert_eq!(program.bindings.len(), 4);
-    assert_eq!(program.bindings[0].name.name, "value");
-    assert_eq!(program.bindings[1].name.name, "later");
-    assert_eq!(program.bindings[2].name.name, "value");
+    assert_eq!(program.bindings().len(), 4);
+    assert_eq!(program.bindings()[0].name.name, "value");
+    assert_eq!(program.bindings()[1].name.name, "later");
+    assert_eq!(program.bindings()[2].name.name, "value");
     assert_eq!(
-        program.bindings[3].annotation.as_ref().map(|a| a.kind),
+        program.bindings()[3].annotation.as_ref().map(|a| a.kind),
         Some(TypeName::Float)
     );
     assert!(program.render.negative);
@@ -436,9 +443,9 @@ fn spec_5_8_all_ast_spans_keep_a_nondefault_source_id() {
     assert_eq!(program.span.source(), source_id);
     assert_eq!(program.render.span.source(), source_id);
     assert_eq!(program.render.duration.span.source(), source_id);
-    assert_eq!(program.bindings.len(), 1);
+    assert_eq!(program.bindings().len(), 1);
 
-    let binding = &program.bindings[0];
+    let binding = &program.bindings()[0];
     assert_eq!(binding.span.source(), source_id);
     assert_eq!(binding.name.span.source(), source_id);
     assert_eq!(

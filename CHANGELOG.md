@@ -6,6 +6,11 @@
 
 ### Added
 
+- Production-реализация этапа 4: function/block/parser semantics, resolved IDs/scopes, Typed AST, graph-construction inlining, eager roots, sharing/fresh state, per-call Float evaluator, call origins и expansion limits. Все 208 integration tests и полный набор проходят; временные заглушки удалены.
+
+- Спецификация 0.5.0 и ADR 0007 для этапа 4: lexical `FunctionId`/`BindingId`, functions/blocks/pipeline, one-time eager args/locals, sharing/fresh state, extended roots, per-call Float diagnostics, inner-to-outer call origins и `FunctionLimits` с новым `E2106`. Добавлены stage/task documents. На момент подготовительной фазы production-функции ещё не работали; финальная реализация и приёмка добавлены отдельной записью.
+- Подготовительный test-facing каркас этапа 4: syntax/Typed representations, `FunctionId`, `FunctionLimits`, call origins/verifiers/renderer plumbing, восемь явных временных заглушек, independent function/block reference и fixed-seed generator. Добавлены 28 integration tests и девять fixtures. Общий corpus — 208 tests: 182 passed, 26 ожидаемых failed на parser stubs, 0 ignored; все 180 прежних tests проходят.
+
 - Production path этапа 3 переведён на verified IR/bytecode и блочную VM: renderer использует один preallocated scratch buffer, variable blocks и source mapping через debug origins. Naive production interpreter удалён после three-way parity; reference остаётся независимым oracle. Structured VM creation/runtime errors получают CLI exit `3`, missing origin обрабатывается явно.
 - Allocation-counting integration test с разрешённым test-only `GlobalAlloc` подтверждает 0 heap allocations в steady-state `render_into` и `reset`. Production library/binary сохраняют `#![forbid(unsafe_code)]`; новых dependencies нет. Финальный corpus содержит 180 integration tests, все проходят.
 - Спецификация 0.4.0 для этапа 3: canonical typed DAG, evaluation roots всех top-level bindings, sharing/NodeOrigin, IR/bytecode verification, capability/resource models, typed registers/StateId/output, debug stripping, block VM/reset/errors и renderer migration. Добавлены ADR 0004/0005 и stage/task documents.
@@ -59,6 +64,8 @@
 - Правила разработки дополнены корректирующими stage documents для новых требований к завершённым этапам и проверками source/determinism/capability инвариантов.
 
 ### Completed
+
+- Этап 4 завершён 2026-11-21 по спецификации 0.5.0: функции, lexical scopes, блоки, pipeline, eager roots, sharing/fresh state, call origins, per-call Float diagnostics и expansion limits реализованы. Все 208 integration tests, differential/properties, zero-allocation checks, общий набор и реальные CLI check/run/atomic-error сценарии проходят.
 
 - Этап 3 завершён 2026-11-21 по спецификации 0.4.0: IR/bytecode/block VM, VM renderer, source diagnostics, differential/properties/compatibility, allocation-free steady-state и benchmark baseline проверены. Все 180 integration tests и общий набор проходят.
 - Этап 2 завершён 2026-11-20 по спецификации 0.3.0: Typed AST/lifts, `sine`, interpreter, streaming WAV, `run`, regression-исправления и ручная Beep/atomic/determinism приёмка выполнены. Все 121 integration tests и общий проверочный набор проходят.

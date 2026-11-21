@@ -8,7 +8,8 @@ pub use builtins::{
     RuntimeCapability, Statefulness, builtin_by_name, builtin_descriptor,
 };
 pub use check::check_program;
-pub use resolve::{BindingSymbol, SymbolStorage};
+pub use resolve::{BindingSymbol, FunctionSymbol, Scopes, SymbolStorage};
 pub use types::{
-    BindingId, BuiltinId, Type, TypedBinding, TypedExpr, TypedExprKind, TypedProgram, TypedRender,
+    BindingId, BuiltinId, FunctionId, FunctionLimits, Type, TypedBinding, TypedExpr, TypedExprKind,
+    TypedFunction, TypedParameter, TypedProgram, TypedRender, TypedTopDecl,
 };

@@ -13,20 +13,20 @@ fn context() -> (SourceMap, SourceSpan) {
 }
 
 fn origin(span: SourceSpan) -> NodeOrigin {
-    NodeOrigin { primary: span }
+    NodeOrigin::new(span)
 }
 
 fn compiled_output_origin(program: &linen::CompiledProgram) -> NodeOrigin {
     let span = program
         .typed
-        .bindings
+        .bindings()
         .iter()
         .find(|binding| binding.id == program.typed.output)
         .expect("compiled output must have a binding")
         .value
         .span;
 
-    NodeOrigin { primary: span }
+    NodeOrigin::new(span)
 }
 
 fn constant_program(span: SourceSpan) -> Bytecode {

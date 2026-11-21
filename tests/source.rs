@@ -280,6 +280,7 @@ fn spec_5_8_source_aware_check_uses_explicit_name_and_compile_config() {
             max_depth: 128,
             max_nodes: 2,
         },
+        ..CompileConfig::default()
     };
     let outcome = check_with_config("configured.ln", "let out = 1; render 1s;", config);
     let diagnostic = outcome

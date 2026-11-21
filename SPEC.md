@@ -3,8 +3,8 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.4.0
-- Дата: 2026-11-20
+- Версия спецификации: 0.5.0
+- Дата: 2026-11-21
 - Рабочее название: **linen**
 - Репозиторий: `linen`
 - Расширение файлов: `.ln`
@@ -12,7 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
-- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A завершён по спецификации 0.2.1; этап 2 завершён по спецификации 0.3.0; этап 3 завершён по спецификации 0.4.0, включая VM renderer, 180 integration tests, allocation harness и documented benchmark baseline; этап 4 не начат
+- Состояние реализации: этапы 0, 1, 1A, 2, 3 и 4 завершены по спецификации 0.5.0. Функции, lexical scopes, блоки, pipeline, eager roots, sharing/fresh state, per-call Float checks, call origins и expansion limits реализованы; все 208 integration tests и полный проверочный набор проходят. Этап 5 не начат
 
 ## 0. Как читать документ
 
@@ -353,7 +353,7 @@ sine(freq: Sig): Sig
 - `max_output_seconds` является protective render limit, а не языковым ограничением. Фактическая положительная длительность больше лимита отклоняется перед записью как `E4003`; `check` этот лимит не применяет. Нулевой лимит допустим и отклоняет любую программу;
 - `Bool → Float`, `Bool → Sig` и другие неявные преобразования отсутствуют.
 
-### 4.5. Функции и блоки — следующий языковой этап
+### 4.5. Функции, блоки и pipeline — текущий этап 4
 
 Синтаксис:
 
@@ -415,7 +415,28 @@ x |> f          ≡ f(x)
 x |> f(a, b)    ≡ f(x, a, b)
 ```
 
-В правой части pipeline допускается только имя функции и опциональный список аргументов. Pipeline левоассоциативен и имеет более низкий приоритет, чем `+` и `-`.
+В правой части pipeline допускается только имя функции и опциональный список аргументов. Pipeline левоассоциативен и имеет более низкий приоритет, чем `+` и `-`. Desugaring происходит в parser в обычный named call: LHS становится первым аргументом, затем следуют явные RHS args. Отдельного Typed AST/IR/runtime pipeline node нет.
+
+Дополнительные контракты этапа 4:
+
+- Пример `shaped` выше демонстрирует только синтаксис: `clamp` не является builtin этапа 4 и получает обычную `E2102`, пока не будет определён отдельным этапом.
+- Lexer распознаёт `{`, `}`, `=>` и `|>` как отдельные tokens. Одиночный `|` остаётся `E1000`; `=` без `>` не является `=>`.
+- Function declaration span включает `let` и завершающий `;`; parameter span включает имя, `:`, type annotation; block span включает braces. Полный desugared pipeline call span начинается у LHS и заканчивается RHS, а `callee.span` содержит только RHS identifier.
+- Function declaration считается одним AST declaration node; parameters и их annotations отдельными AST nodes не являются. Block является одним `Expr`, его locals считаются declarations. Function body имеет expression root глубины `0`; вложенный block увеличивает depth, pipeline сам глубину не увеличивает.
+- Program сохраняет top-level declarations в исходном порядке. Структурный `out` ищется только среди top-level value bindings; local `out` является обычным именем. Function declarations внутри blocks запрещены.
+- `BindingId` однозначно идентифицирует top-level binding, parameter или local `let` в одной компиляции; `FunctionId` отдельно идентифицирует пользовательскую функцию. Повторное использование definition сохраняет ID, одинаковые имена в разных scopes получают разные IDs.
+- Функция видит свои параметры/locals и ранее объявленные top-level values/functions. Захваченный top-level binding сохраняет sharing. Поздние declarations и текущая функция в собственном теле невидимы, поэтому forward calls и прямая/косвенная рекурсия отклоняются resolution.
+- Параметры и `let` непосредственно тела функции образуют один scope; явно вложенный block создаёт дочерний scope и разрешает shadowing внешнего value binding.
+- Пользовательские top-level values/functions используют единый namespace для duplicate-проверки. Функция с именем builtin `sine` отклоняется как `E2000`. Существующий value binding `sine` остаётся допустимым и не мешает вызову builtin `sine`.
+- Function name в value position не является first-class value; value binding в callee position не становится функцией. Anonymous functions отсутствуют.
+- Тело каждой функции проходит semantic checks даже без вызовов. Невызванная функция не создаёт IR nodes/roots.
+- Каждый аргумент вычисляется слева направо ровно один раз на вызов, даже если параметр не используется. Parameter reference обозначает sharing результата аргумента. Подстановка и повторное инстанцирование аргумента при каждом reference запрещены.
+- Каждый local `let` внутри вызванного тела вычисляется один раз в порядке исходника, даже если результат не используется. Eager values аргументов и locals включаются в IR evaluation roots по §5.6, поэтому их runtime errors не исчезают.
+- Каждый вызов заново инстанцирует собственные expression nodes тела и создаёт свежие stateful-узлы; captured/shared nodes не дублируются. Expansion ограничивается `FunctionLimits` и `E2106` по §10.1.
+- Тело типизируется с типами, но без concrete values параметров. Значение `DependsOnParameters` не является ошибкой generic body. Известные literals/operations, деление на известный ноль, нечисловые результаты и lifts проверяются при объявлении.
+- При каждой конкретизации вызова все Float arguments/locals/result и inserted lifts проверяются с concrete values по §4.4. Ошибка, зависящая от аргументов, получает primary span конкретного выражения в теле и secondary call spans от внутреннего к внешнему вызову; независимая ошибка невызванной функции имеет definition primary без chain.
+
+Подробная архитектура инстанцирования, roots и origins зафиксирована в ADR 0007.
 
 ### 4.6. Variants, records и match — целевой этап
 
@@ -672,7 +693,7 @@ Typed AST сохраняет структуру исходника и добав
 - исходный `SourceSpan` у declarations, expressions и render;
 - явную операцию `LiftFloatToSig`, вставленную type checker.
 
-На этапе 2 существует один плоский top-level scope. `BindingId` выдаётся детерминированно в порядке declarations начиная с нуля, повторное использование definition сохраняет ID. `FunctionId`, nested scopes, shadowing и связанные identity tests откладываются до этапа 4 вместе с реальным синтаксисом функций и блоков.
+На этапе 2 существовал один плоский top-level scope. Начиная с этапа 4 `BindingId` выдаётся детерминированно при обходе top-level declarations, параметров и locals начиная с нуля и уникален внутри compilation; повторное использование definition сохраняет ID. `FunctionId` имеет отдельный zero-based index space в порядке function declarations. Typed AST сохраняет порядок `TypedTopDecl::{Binding,Function}`, различает builtin/user calls и явно представляет typed blocks, params и locals. Невызванные function declarations остаются в Typed AST, но не имеют собственного evaluation root.
 
 Неявные преобразования не должны восстанавливаться lowering по догадке: они уже явно присутствуют в Typed AST. ID уникален в явно заданной области компиляции, не является адресом Rust-структуры или random UUID и не влияет на звук через порядок обхода. Строковое имя остаётся частью lookup и diagnostics. `CompileSession` явно владеет `SymbolStorage`, а source-level compile outcome сохраняет storage вместе с `SourceMap` и результатом. Будущий fully-qualified symbol строится из логического module/package ID и локального имени, а не из абсолютного пути.
 
@@ -713,7 +734,11 @@ Node
 
 NodeOrigin
   primary: SourceSpan
-  inlined_from: optional chain of call spans   # появляется с inlining на этапе 4
+  inlined_from: Vec<CallOrigin>          # пусто без inlining
+
+CallOrigin
+  function: FunctionId
+  call_span: SourceSpan                  # полный direct/pipeline call
 
 NodeOp (начальный набор)
   ConstFloat(f64)
@@ -732,13 +757,15 @@ NodeOp (начальный набор)
 - каждый input ссылается на существующий узел с индексом строго меньше consuming node, поэтому canonical graph ацикличен и не требует topological sort в codegen;
 - arity и типы входов соответствуют операции. `ConstFloat` и scalar arithmetic имеют тип `Float`; `LiftFloatToSig` переводит `Float` в `Sig`; signal arithmetic сохраняет `Sig`; `Sine` принимает и возвращает `Sig`;
 - входы binary IR operation имеют одинаковый тип, совпадающий с результатом: mixed arithmetic уже содержит явные `LiftFloatToSig` nodes. Scalar arithmetic остаётся `f64`, signal runtime — `f32`;
-- `roots` содержит value каждого top-level binding в declaration order, включая bindings, не используемые в `out`. Это сохраняет текущее вычисление всех bindings и порядок их runtime errors. Несколько roots могут содержать один `NodeId` как sharing, а не повторное вычисление;
+- `roots` содержит value каждого top-level binding в declaration order, включая bindings, не используемые в `out`. На этапе 4 он также содержит value каждого user-call аргумента и каждого local `let` в момент eager-вычисления; внутренние roots предшествуют root enclosing binding. Это сохраняет вычисление и runtime-error ordering даже неиспользуемых parameters/locals. Несколько roots могут содержать один `NodeId` как sharing;
 - `output` — value binding `out`, обязан входить в `roots` и иметь тип `Sig`; `render_samples` копируется из Typed AST;
-- все узлы достижимы хотя бы из одного root. Unreachable nodes будущих passes требуют отдельного контракта; dead-node elimination на этапе 3 отсутствует;
-- lowering обрабатывает bindings и operands слева направо. Identifier reference повторно использует `NodeId` resolved binding; `Group` прозрачен. CSE, constant folding, reordering и другие optimizations не выполняются;
+- все узлы достижимы хотя бы из одного root. Unreachable nodes будущих passes требуют отдельного контракта; dead-node elimination отсутствует;
+- lowering обрабатывает declarations, arguments и operands слева направо. Identifier reference повторно использует `NodeId` resolved binding; `Group` прозрачен. User call инстанцирует тело по ADR 0007: args до входа в функцию, locals в исходном порядке, fresh body nodes на каждый вызов. CSE, constant folding, reordering и другие optimizations не выполняются;
 - после оптимизирующего pass в будущем ID могут измениться;
-- каждый исходный IR-узел имеет валидный primary `SourceSpan`; origin не влияет на звук. На этапе 3 `NodeOrigin` фактически содержит только primary, без пустых inline/merged/unknown состояний;
-- origin `Sine` указывает на frequency expression для стабильной `E4001`; полный call span остаётся в Typed AST. Origin остальных nodes соответствует их Typed expression;
+- каждый исходный IR-узел имеет валидный primary `SourceSpan`; origin не влияет на звук. Без inlining `inlined_from` пуст. При inlining chain упорядочен от внутреннего к внешнему вызову, каждый `CallOrigin` содержит resolved `FunctionId` и полный call span;
+- аргументы получают origin своего call-site/outer context, но не frame вызываемой ими функции. Shared/captured nodes не переписывают origin;
+- origin `Sine` указывает на frequency expression для стабильной `E4001`; полный call span остаётся в Typed AST и `inlined_from`. Origin остальных nodes соответствует их Typed expression;
+- `verify` дополнительно проверяет каждый inline call span. `FunctionId` соответствие определению проверяется через Typed AST/`SymbolStorage` и lowering tests;
 - после optimization нельзя сохранять заведомо ложный span: при объединении узлов сохраняется точный origin либо явный merged/unknown origin по правилам соответствующего ADR;
 - source origin используется diagnostics/debug info, но может отсутствовать в compact production bytecode;
 - сериализуемый стабильный формат IR на старте отсутствует.
@@ -806,7 +833,7 @@ Operand       Scalar(ScalarRegister) | Audio(AudioRegister)
 - VM core не импортирует CLI, `render` и не знает о WAV, VST, display, GPIO или конкретном windowing toolkit;
 - любая неподдерживаемая или повреждённая инструкция — ошибка verifier/runtime, не молчаливый fallback.
 
-VM errors не содержат source `Diagnostic`. Production renderer использует retained origins для прежней `E4001` frequency diagnostic; structured nonfinite output он локализует полным span out value. Отсутствие необходимого origin после stripping является явной internal/render error, а не поводом выбрать другой span. Обычный production compile сохраняет origins, поэтому CLI diagnostics не меняются.
+VM errors не содержат source `Diagnostic`. Production renderer использует retained origins для прежней `E4001` frequency diagnostic; structured nonfinite output он локализует полным span out value. Начиная с этапа 4 frequency diagnostic получает primary в определении и secondary labels из `inlined_from` в порядке inner-to-outer, сохраняя code и sample index. Отсутствие необходимого origin после stripping является явной internal/render error, а не поводом выбрать другой span. Обычный production compile сохраняет origins; для программ без функций CLI diagnostics не меняются.
 
 Renderer выделяет один scratch block вне steady-state loop, разбивает checked `render_samples` на variable chunks и сохраняет прежние protective limit, streaming WAV, PCM16 и atomic publish. Подробная архитектура — ADR 0005.
 
@@ -828,7 +855,7 @@ render(program, config, Write)
 - source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Compile outcome также сохраняет `SymbolStorage` для returned resolved IDs. Session-based caller удерживает сам session и передаёт только её IDs. Result из outcome разрешается через карту того же outcome или её идентичную копию;
 - compile outcome различает source `Diagnostic` и structured internal IR/bytecode verifier errors. Первые сохраняют source exit `1`; вторые являются compiler bugs и дают CLI exit `3`, не подменяются пользовательской diagnostic или panic. Точные Rust-сигнатуры нестабильны;
 - `SourceId` является map-local индексом. Независимые `SourceMap` могут выдавать равные ID, поэтому передача ID в другую session/outcome находится вне контракта API. Lookup, session и renderer проверяют наличие индекса, а не происхождение ID. Unknown `SourceId` означает отсутствующий в данной карте индекс и возвращает typed session/render error, а не diagnostic с неразрешимым span; foreign same-index ID не обязан обнаруживаться;
-- `CompileSession` владеет `SourceMap`, `CompileConfig` и начиная с этапа 2 `SymbolStorage`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery;
+- `CompileSession` владеет `SourceMap`, `CompileConfig` и `SymbolStorage`. `CompileConfig` содержит parser limits и начиная с этапа 4 `FunctionLimits { max_call_depth: 128, max_expanded_nodes: 10_000 }`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery;
 - `compile` получает явный `RenderConfig` для sample-rate-dependent проверок и сохраняет его в compiled program. Source-free `RenderConfigError` отличается от source `Diagnostic`; protective max-seconds применяется только перед render;
 - parser и последующие стадии получают уже загруженный текст/`SourceId` и не открывают файлы;
 - diagnostics не выводятся в stdout из глубины компилятора;
@@ -1016,6 +1043,7 @@ sample_index: optional zero-based u64 для runtime diagnostics
 | `E2103` | Некорректная длительность |
 | `E2104` | Compile-time деление на ноль |
 | `E2105` | Нечисловой compile-time `Float` или значение, которое нельзя представить конечным `f32` при lift |
+| `E2106` | Превышен лимит глубины или числа expression visits при инстанцировании пользовательских функций |
 | `E4000` | Некорректный sample rate, block size или numeric render option |
 | `E4001` | NaN/Inf в сигнале frequency или на выходе |
 | `E4002` | Переполнение длительности, sample count или RIFF/PCM sizes |
@@ -1036,18 +1064,19 @@ Lexer и parser этапов 1 и 1A завершаются на первой о
 
 Структурные проверки выполняются после синтаксического разбора; сначала проверяется наличие и положение `render`, затем наличие и уникальность `out`. Поэтому пустой файл даёт `E2004`, а не `E2002`. Этот порядок и повторный результат не зависят от source physical path или hash randomization. Перед recovery/несколькими diagnostics их ordering получает отдельный явный контракт.
 
-Семантические проверки этапа 2 также fail-fast и начинаются только после успешных structural checks. Top-level bindings обрабатываются в порядке исходника. Duplicate name сначала проверяется среди предыдущих declarations, затем value разрешается без текущего binding в scope и только после успеха binding добавляется в storage. Поэтому self/forward reference — `E2001`, а duplicate на текущем declaration имеет приоритет над ошибками его value. Вызов сначала разрешает callee (`E2102`), затем проверяет arity (`E2101`), затем аргументы слева направо. После value проверяется аннотация binding; `render` проверяется последним.
+Семантические проверки также fail-fast и начинаются только после успешных structural checks. Top-level values/functions обрабатываются в порядке исходника. Duplicate name сначала проверяется среди предыдущих пользовательских declarations, затем value/body разрешается без текущего declaration в scope и только после успеха binding/function добавляется в storage. Поэтому self/forward value reference — `E2001`, self/forward callee — `E2102`, а duplicate на текущем declaration имеет приоритет над ошибками value/body. Parameters проверяются слева направо до тела; тело функции проверяется при declaration даже без вызовов. Вызов сначала разрешает callee (`E2102`), затем проверяет arity (`E2101`), затем аргументы слева направо. После value проверяется аннотация binding; `render` проверяется последним.
 
 Primary `SourceSpan` семантических diagnostics детерминирован:
 
-- `E2000` — identifier повторного binding, identifier первого — secondary;
-- `E2001` — unresolved identifier, включая self/forward reference;
-- `E2102` — unknown callee identifier; `E2101` — callee identifier известной функции с неверной arity;
-- `E2100` в аргументе — expression аргумента; при несовместимой обычной аннотации — value expression, annotation — secondary; для запрещённой явной `out: Float` — сама annotation;
-- `E2104` — zero divisor expression;
+- `E2000` — identifier повторного top-level binding/function, parameter или local; identifier первого пользовательского definition — secondary. Для функции, повторяющей builtin `sine`, primary — function identifier, source secondary отсутствует, note называет builtin;
+- `E2001` — unresolved value identifier, включая self/forward reference и function name в value position;
+- `E2102` — unknown/self/forward callee identifier или value binding в callee position; `E2101` — callee identifier известной функции с неверной arity;
+- `E2100` в аргументе — expression аргумента; для user function соответствующая parameter annotation является secondary. При несовместимой обычной аннотации — value expression, annotation — secondary; для запрещённой явной `out: Float` — сама annotation. При несовпадении function result primary — итоговое body expression, return annotation — secondary;
+- `E2104` — zero divisor expression; `E2105` — нечисловой literal/unary/binary expression либо lifted expression, чья checked `f32` conversion переполняется;
+- если `E2104`/`E2105` выявлены конкретизацией вызова, primary остаётся в теле определения, а secondary содержат full call spans активного стека от внутреннего к внешнему;
+- `E2106` — полный direct/desugared pipeline call, чья конкретизация превысила depth/node budget; активные outer calls являются secondary в порядке inner-to-outer;
 - `E2103`, `E4002`, `E4003` — duration literal без optional minus;
-- `E2105` — нечисловой literal/unary/binary expression либо lifted expression, чья checked `f32` conversion переполняется;
-- `E4001` при нечисловом output — value expression `out`; при нечисловой frequency — expression соответствующего аргумента `sine`. Оба случая содержат фактический zero-based `sample_index`.
+- `E4001` при нечисловом output — value expression `out`; при нечисловой frequency — expression соответствующего аргумента `sine`, включая expression в теле функции. Runtime origin добавляет secondary full call spans в порядке inner-to-outer. Оба случая содержат фактический zero-based `sample_index`.
 
 `E4003` проверяется после успешной компиляции и до записи WAV header. `E4000` и файловая `E5000` являются source-free host/configuration errors; для них не создаётся фиктивный span. Точные сообщения не закрепляются, но codes, spans, sample index и fail-fast порядок стабильны.
 
@@ -1697,7 +1726,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 3 — IR, bytecode и блочная VM
 
-**Статус:** завершён 2026-11-21 по спецификации 0.4.0. Приняты ADR 0004/0005; lowering, verifiers, codegen, block VM и renderer migration реализованы, naive interpreter удалён после parity. Все 180 integration tests, allocation harness и общий набор проходят; benchmark baseline зафиксирован. Контракт, измерения и DoD: `docs/development/stages/stage-03-ir-bytecode-vm.md`. Этап 4 не начат.
+**Статус:** завершён 2026-11-21 по спецификации 0.4.0. Приняты ADR 0004/0005; lowering, verifiers, codegen, block VM и renderer migration реализованы, naive interpreter удалён после parity. Все 180 integration tests, allocation harness и общий набор проходят; benchmark baseline зафиксирован. Контракт, измерения и DoD: `docs/development/stages/stage-03-ir-bytecode-vm.md`. На момент завершения этапа 3 этап 4 ещё не был начат; его текущий статус зафиксирован ниже отдельно.
 
 **Цель:** заменить production interpreter блочной VM без изменения языка, runtime diagnostics и WAV-контракта.
 
@@ -1742,6 +1771,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 4 — Функции, блоки и pipeline
 
+**Статус:** завершён 2026-11-21 по спецификации 0.5.0. Принят ADR 0007; parser/sema/lowering, lexical scopes, eager roots, sharing/fresh state, call origins, per-call Float checks и expansion limits реализованы. Все 208 integration tests, allocation harness, общий набор и реальные CLI сценарии проходят. Контракт, историческая подготовка и финальная приёмка: `docs/development/stages/stage-04-functions-blocks-pipeline.md`. Этап 5 не начат.
+
 **Цель:** функциональная композиция графов с локальным выводом типов.
 
 **Production:**
@@ -1770,8 +1801,11 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 - повторное использование одной `let`-привязки сохраняет sharing;
 - pipeline эквивалентен явному вызову;
 - resolved `FunctionId`/`BindingId` и call/origin chains ссылаются на правильные определения и `SourceSpan`; одинаковые строки в разных nested scopes получают разные `BindingId`, а повторное использование definition сохраняет ID;
-- recursion получает понятную compile error;
-- предыдущие fixtures и block-invariance tests проходят.
+- recursion и forward calls получают понятную стабильную compile error;
+- arguments/locals вычисляются eager и один раз, unused values сохраняют runtime errors через roots;
+- per-call Float/lift errors сохраняют definition primary и inner-to-outer call chain;
+- expansion depth/node limits, включая zero/exact/over boundary, исключают неограниченный graph growth;
+- предыдущие fixtures, block-invariance, reset, differential/properties и zero-allocation tests проходят.
 
 ### Этап 5 — Базовые осцилляторы и стерео
 
@@ -1990,7 +2024,10 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 - Рендер: память не растёт линейно от длительности WAV; используется потоковая запись.
 - Audio state: память ограничена графом, размером delay buffers и числом voices.
 - Parser: `ParserConfig` ограничивает глубину выражения (`max_depth = 128`) и число AST-узлов (`max_nodes = 10_000`), malformed input не вызывает неограниченную рекурсию. Верхнеуровневое выражение имеет глубину `0`; вложенные скобки, operand унарного оператора и аргументы вызова увеличивают её на `1`, а функции разбора приоритетов сами по себе глубину не увеличивают. Лимит `N` допускает `N` уровней, следующий даёт `E1102`.
-- Подсчёт AST-узлов включает каждую `let`/`render` declaration и каждый `Expr`, включая группирующие скобки; корневой `Program`, идентификаторы, аннотации типов и payload длительности отдельными узлами не считаются. Лимит `N` допускает `N` таких узлов, следующий даёт `E1103`.
+- Подсчёт AST-узлов включает каждую `let`/`render`/function declaration и каждый `Expr`, включая группирующие скобки и blocks; корневой `Program`, identifiers, parameters, аннотации типов и payload длительности отдельными узлами не считаются. Лимит `N` допускает `N` таких узлов, следующий даёт `E1103`.
+- Function expansion: `CompileConfig.functions` содержит `FunctionLimits { max_call_depth = 128, max_expanded_nodes = 10_000 }`. Активный user call имеет глубину `1`, builtins глубину не увеличивают. Лимит `N` допускает `N` вложенных user calls, следующий даёт `E2106` до дальнейшего recursion.
+- Node budget подсчитывает каждый Typed expression visit при конкретизации пользовательского вызова, включая arguments/body, identifiers/groups/blocks и повторные visits в разных вызовах. Обычные expressions вне user call budget не расходуют. Лимит `N` допускает `N` visits, следующий даёт `E2106` до создания следующего expanded узла. Ноль для depth или nodes запрещает пользовательские вызовы, но не меняет программы только с builtins.
+- Budget применяется и к конкретизируемым вызовам внутри тел невызванных функций. Обход детерминирован: declarations в исходном порядке, args слева направо, locals затем result. Экспоненциальная композиция отклоняется до неконтролируемого allocation.
 - Runtime: sample count и размеры buffers проверяются на overflow до выделения.
 - Обычный тестовый набор: детерминированные seed и отсутствие сетевых/внешних зависимостей.
 
@@ -2110,12 +2147,23 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 1. Этапы 0, 1 и 1A завершены; сохранить их исторические отчёты и исходные проверки. Итоговая приёмка 1A находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
 2. Область `SourceId` уточнена в спецификации 0.2.1 и ADR 0012: IDs остаются детерминированными map-local индексами и используются только с исходной картой; глобальный provenance не добавляется.
 3. Этап 2 завершён 2026-11-20 по спецификации 0.3.0: resolver/type checker, Typed AST/lifts, наивный `sine` interpreter, streaming WAV и CLI реализованы; 121 integration test, общий набор и ручная Beep/atomic/determinism приёмка проходят. Исторический отчёт подготовки и финальная приёмка находятся в `docs/development/stages/stage-02-types-interpreter-wav.md`.
-4. Этап 3 завершён 2026-11-21 по ADR 0004/0005, включая benchmark baseline с полной конфигурацией §10.2 в stage document. Этап 4 начинается только по отдельной явной задаче. Persistence не создаётся; если появится отдельной задачей, format/VM version обязательны.
-5. Reference, block partitions, reset, origins, verifiers, determinism и differential generation уже проверены. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
-6. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
-7. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
+4. Этап 3 завершён 2026-11-21 по ADR 0004/0005, включая benchmark baseline с полной конфигурацией §10.2 в stage document. Persistence не создаётся; если появится отдельной задачей, format/VM version обязательны.
+5. Этап 4 завершён 2026-11-21 по спецификации 0.5.0 и ADR 0007: parser/sema/lowering реализованы, все временные заглушки удалены, 208 integration tests и полный DoD проходят. Этап 5 не начат и требует отдельной явной задачи.
+6. Reference, block partitions, reset, origins, verifiers, determinism и differential generation уже проверены для прежнего языка и расширяются функциями на этапе 4. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
+7. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
+8. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.5.0 — 2026-11-21
+
+- Изменение: начат этап 4 и детализированы function/block syntax, parser desugaring pipeline, lexical `FunctionId`/`BindingId`, захват ранних top-level values, one-time eager args/locals, per-call Float checking, fresh state, extended evaluation roots, `CallOrigin`/`inlined_from`, definition-primary call-chain diagnostics и `FunctionLimits`. Добавлены `E2106`, ADR 0007 и stage/task documents.
+- Причина: устранить неоднозначности перед ручной реализацией parser/type checker/lowering, сохранить sharing/eager runtime errors и не допустить экспоненциального неограниченного graph growth при inlining.
+- Затронутые контракты: §0, §3–§4.5, §5.5–§5.8, §6.2, §7, §9 (этап 4), §10–§14; нестабильные Rust AST/Typed AST/SymbolStorage/NodeOrigin representations расширяются.
+- Совместимость: прежний Beep syntax/types, diagnostic codes/spans/sample indices, CLI, WAV/PCM16 и graphs без функций не меняются. Новый `E2106` не переиспользует существующий код. До production-реализации временные заглушки и красные tests не являются работающим языком или завершением этапа.
+- Новые/изменённые тесты: syntax/spans/limits, scope/shadowing/IDs, direct/pipeline calls, per-call typing/Float diagnostics, sharing/fresh state/eager roots, nested origins/verifier corruption, expansion boundaries, independent reference, differential/properties/reset/block partitions/compatibility. Фактические counts фиксируются после запусков.
+- Production-приёмка 2026-11-21: parser/sema/lowering реализованы, все заглушки удалены. Финальный corpus — 208 integration tests, 0 failed, 0 ignored; общий набор, allocation checks на stage-3/4 graphs и реальные CLI check/run/atomic-error сценарии проходят. Исправления test expected для inserted lift и block-sized VM helper не меняют языковой контракт.
+- Связанный ADR: `0007`; сохраняются `0001`–`0006`, `0009`, `0011`, `0012`.
 
 ### 0.4.0 — 2026-11-20
 

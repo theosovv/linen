@@ -1,0 +1,14 @@
+let scale = (x: Sig, factor: Sig): Sig => x * factor;
+let shaped = (x: Sig): Sig => {
+  let amplified = x * 2;
+  let scaled = {
+    let factor = 0.25;
+    amplified * factor
+  };
+  scaled |> scale(0.5)
+};
+let out = {
+  let wave = sine(480);
+  shaped(wave)
+};
+render 1ms;

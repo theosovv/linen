@@ -74,6 +74,14 @@ impl<'source> Lexer<'source> {
                     self.advance();
                     self.add_token(TokenKind::RightParen);
                 }
+                '{' => {
+                    self.advance();
+                    self.add_token(TokenKind::LeftBrace);
+                }
+                '}' => {
+                    self.advance();
+                    self.add_token(TokenKind::RightBrace);
+                }
                 ',' => {
                     self.advance();
                     self.add_token(TokenKind::Comma);
@@ -84,7 +92,23 @@ impl<'source> Lexer<'source> {
                 }
                 '=' => {
                     self.advance();
-                    self.add_token(TokenKind::Equal);
+                    if self.consume_if('>') {
+                        self.add_token(TokenKind::FatArrow);
+                    } else {
+                        self.add_token(TokenKind::Equal);
+                    }
+                }
+                '|' => {
+                    self.advance();
+                    if self.consume_if('>') {
+                        self.add_token(TokenKind::PipeGreater);
+                    } else {
+                        return Err(self.error(
+                            ErrorCode::UnknownCharacter,
+                            "unexpected character '|'",
+                            "a pipeline must use `|>`",
+                        ));
+                    }
                 }
                 ';' => {
                     self.advance();

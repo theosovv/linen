@@ -3,7 +3,7 @@
 //! Public library facade for linen.
 //!
 //! The crate provides structured diagnostics, the source-aware syntax API and
-//! the unstable stage 2 and stage 3 representations used by the implementation.
+//! the unstable stage 2–4 representations used by the implementation.
 //!
 //! ```
 //! use linen::{Diagnostic, DiagnosticLabel, ErrorCode, SourceMap, SourceSpan};

@@ -293,8 +293,7 @@ pub fn verify(bytecode: &Bytecode) -> Result<(), BytecodeVerifyError> {
     Ok(())
 }
 
-fn origin_is_valid(sources: &SourceMap, origin: NodeOrigin) -> bool {
-    let span = origin.primary;
+fn span_is_valid(sources: &SourceMap, span: crate::SourceSpan) -> bool {
     let Some(source) = sources.get(span.source()) else {
         return false;
     };
@@ -305,6 +304,14 @@ fn origin_is_valid(sources: &SourceMap, origin: NodeOrigin) -> bool {
         && span.end() <= text.len()
         && text.is_char_boundary(span.start())
         && text.is_char_boundary(span.end())
+}
+
+fn origin_is_valid(sources: &SourceMap, origin: &NodeOrigin) -> bool {
+    span_is_valid(sources, origin.primary)
+        && origin
+            .inlined_from
+            .iter()
+            .all(|call| span_is_valid(sources, call.call_span))
 }
 
 pub fn verify_origins(bytecode: &Bytecode, sources: &SourceMap) -> Result<(), BytecodeVerifyError> {
@@ -319,7 +326,7 @@ pub fn verify_origins(bytecode: &Bytecode, sources: &SourceMap) -> Result<(), By
         });
     }
 
-    for (instruction, &origin) in origins.iter().enumerate() {
+    for (instruction, origin) in origins.iter().enumerate() {
         if !origin_is_valid(sources, origin) {
             return Err(BytecodeVerifyError::InvalidOrigin { instruction });
         }
