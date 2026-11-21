@@ -4,7 +4,7 @@
 
 **linen** — исследовательский некоммерческий проект статически типизированного функционального языка для описания аудиосигналов. Цель разработки — собственные компилятор, блочная виртуальная машина, DSP-узлы и инструменты исследования звука на Rust.
 
-> Этапы 0, 1, корректирующий этап 1A и этап 2 завершены. По `SPEC.md` 0.3.0 реализована первая вертикаль `source → Typed AST → naive interpreter → WAV`: Beep создаёт монофонический PCM16 WAV с частотой дискретизации 48 000 Гц. Этап 3 с IR, bytecode и block VM ещё не начат.
+> Этапы 0, 1, корректирующий этап 1A, 2 и 3 завершены. По `SPEC.md` 0.4.0 работает production path `source → Typed AST → IR → bytecode → block VM → WAV`; naive interpreter удалён после parity. Все 180 integration tests и allocation-counting harness проходят. Benchmark baseline зафиксирован в stage document; этап 4 не начат.
 
 ## Что уже работает
 
@@ -14,14 +14,16 @@
 - Lexer, AST и recursive descent parser для Beep-синтаксиса, включая лимиты глубины и числа узлов и обработку смешанных synthetic token streams.
 - Name resolution в плоском top-level scope, детерминированные `BindingId`/`BuiltinId`, session-owned `SymbolStorage` и статический descriptor `sine`.
 - Типы `Float`/`Sig`, checked compile-time arithmetic, явные `LiftFloatToSig`, аннотации и проверка `out`/`render`.
-- Наивный посемпловый interpreter и `sine` с независимой `f64` phase, Euclidean modulo и reset.
+- Typed IR с evaluation roots/sharing/origins, graph verifier, typed register bytecode, bytecode verifier и capability/resource metadata.
+- Блочная VM с preallocated scalar/audio registers, independent sine state, variable blocks, reset и structured runtime errors. Steady-state `render_into` и `reset` проверены allocation counter: 0 heap allocations.
+- `sine` с независимой `f64` phase, Euclidean modulo и reset.
 - Потоковая запись mono PCM16 RIFF/WAVE через `Write`, checked sizes, clipping и runtime diagnostics NaN/Inf с structured sample index.
 - Структурированные diagnostics с кодами, primary/secondary labels, notes и logical source names.
 - `linen check` с name/type/duration checks и `linen run` с `--output`, `--sample-rate`, `--block-size`, `--max-seconds` и `--force`.
 - Atomic publish через temporary file в output directory; существующий destination не перезаписывается без `--force`.
-- Integration tests, независимый reference interpreter, doctest, rustfmt, clippy и GitHub Actions CI.
+- Integration/differential/property/compatibility tests, независимый reference interpreter, doctest, rustfmt, clippy и GitHub Actions CI.
 
-`inspect`, пользовательские функции и блоки, IR, bytecode, VM, stereo, фильтры и пользовательские multi-file projects ещё не реализованы. Несколько источников поддерживаются на уровне synthetic in-memory compiler tests; модульная и пакетная функциональность отсутствует.
+`inspect`, пользовательские функции и блоки, stereo, фильтры и пользовательские multi-file projects ещё не реализованы. Несколько источников поддерживаются на уровне synthetic in-memory compiler tests; модульная и пакетная функциональность отсутствует.
 
 ## Требования
 
@@ -93,7 +95,7 @@ fn main() {
 
 `SourceSpan` — `SourceId` и полуинтервальный диапазон `[start, end)`. `SourceMap` выдаёт map-local IDs в порядке добавления и разрешает источники только по ID, допуская duplicate logical names внутри одной карты. Независимые карты могут выдавать равные ID: используйте ID только с создавшей его картой или её идентичной копией.
 
-`check(source)` создаёт одноисточниковую session и возвращает `CheckOutcome` с `SourceMap` и syntax AST либо diagnostic. `compile(source, RenderConfig)` возвращает `CompileOutcome`, который дополнительно владеет `SymbolStorage` и содержит `CompiledProgram` с Typed AST. `render(&program, writer)` потоково записывает WAV в переданный `Write`.
+`check(source)` создаёт одноисточниковую session и возвращает `CheckOutcome` с `SourceMap` и syntax AST либо diagnostic. `compile(source, RenderConfig)` возвращает `Result<CompileOutcome, RenderConfigError>`; `outcome.result` содержит `Result<CompiledProgram, CompileError>`, а программа включает Typed AST, verified IR и bytecode. `CompileError` различает source diagnostic и internal verifier invariant. `create_vm(&program)` создаёт предвыделенную блочную VM, а `render(&program, writer)` потоково записывает WAV через VM в переданный `Write`.
 
 При session-based API caller сохраняет `CompileSession` и не передаёт IDs между sessions. Semantic compilation начинается с пустого `SymbolStorage`; typed results следует разрешать до следующей semantic compilation в той же session. Source-level outcomes сохраняют собственные sources и symbols, поэтому их независимые результаты можно удерживать одновременно.
 
@@ -123,12 +125,14 @@ linen/
 │   │   ├── types.rs
 │   │   ├── builtins.rs
 │   │   └── check.rs
+│   ├── ir/                 # typed DAG, lowering и verifier
+│   ├── bytecode/           # typed instructions, codegen и verifiers
+│   ├── vm/                 # preallocated block execution
 │   ├── dsp/
 │   │   ├── mod.rs
 │   │   └── oscillator.rs
 │   └── render/
 │       ├── mod.rs
-│       ├── interpreter.rs
 │       └── wav.rs
 ├── tests/
 │   ├── source.rs
@@ -137,6 +141,13 @@ linen/
 │   ├── lexer.rs
 │   ├── parser.rs
 │   ├── sema.rs
+│   ├── ir_verify.rs
+│   ├── bytecode_verify.rs
+│   ├── vm.rs
+│   ├── allocations.rs
+│   ├── differential.rs
+│   ├── properties.rs
+│   ├── compatibility.rs
 │   ├── audio.rs
 │   ├── wav.rs
 │   └── reference.rs
@@ -155,19 +166,21 @@ linen/
     └── workflows/ci.yml
 ```
 
-Пустых модулей и production-заглушек для будущих стадий нет. Независимый reference находится только в `test-support` и не используется production interpreter или DSP как общий oracle.
+Production-заглушек этапа 3 не осталось. Независимый reference находится только в `test-support` и не используется production VM или DSP как общий oracle. Test-only allocation counter изолирован в `tests/allocations.rs`; production library/binary сохраняют `forbid(unsafe_code)`.
 
 ## Разработка по спецификации
 
 - [`SPEC.md`](SPEC.md) — единственный источник правды и полный план этапов.
 - [`docs/linen — подготовка к экосистеме.md`](docs/linen%20%E2%80%94%20%D0%BF%D0%BE%D0%B4%D0%B3%D0%BE%D1%82%D0%BE%D0%B2%D0%BA%D0%B0%20%D0%BA%20%D1%8D%D0%BA%D0%BE%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D0%B5.md) — архитектурные ограничения и будущая roadmap source libraries, instruments, packages и device artifacts; не текущий список функций.
 - [`docs/development/README.md`](docs/development/README.md) — spec-driven workflow.
+- [`docs/development/backlog.md`](docs/development/backlog.md) — обоснованные будущие улучшения, включая BUF-001 о PCM16 buffering.
 - [`docs/development/task-template.md`](docs/development/task-template.md) — шаблон проверяемой задачи с allowlist.
 - [`docs/development/stages/stage-00-foundation.md`](docs/development/stages/stage-00-foundation.md) — объём, traceability и DoD этапа 0.
 - [`docs/development/stages/stage-01-syntax.md`](docs/development/stages/stage-01-syntax.md) — объём и приёмка этапа 1.
 - [`docs/development/stages/stage-01a-ecosystem-foundation.md`](docs/development/stages/stage-01a-ecosystem-foundation.md) — миграция этапов 0–1 и приёмка 1A.
 - [`docs/development/stages/stage-02-types-interpreter-wav.md`](docs/development/stages/stage-02-types-interpreter-wav.md) — контракт, DoD и итоговая приёмка этапа 2.
-- [`docs/adr/`](docs/adr/) — архитектурные решения, включая ADR 0003/0006/0009 для этапа 2 и ADR 0012 о SourceMap/session.
+- [`docs/development/stages/stage-03-ir-bytecode-vm.md`](docs/development/stages/stage-03-ir-bytecode-vm.md) — контракт, подготовительные результаты и DoD этапа 3.
+- [`docs/adr/`](docs/adr/) — архитектурные решения, включая ADR 0004/0005 для IR и block VM.
 - [`AGENTS.md`](AGENTS.md) — обязательные правила для ИИ-агентов.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — участие человека и делегирование задач агентам.
 
@@ -181,7 +194,7 @@ linen/
 | 1. Lexer, parser и синтаксические diagnostics | Завершён | Разбор Beep-синтаксиса без type checking и звука |
 | 1A. SourceMap и явный контекст компиляции | Завершён | Source identity, session, determinism, четыре новых reserved words |
 | 2. Типы, наивный интерпретатор и Beep WAV | Завершён | Semantic `check`, Typed AST, `sine`, `run` и PCM16 WAV |
-| 3. IR, bytecode и блочная VM | Не начат | Следующий этап после отдельной явной задачи |
+| 3. IR, bytecode и блочная VM | Завершён | Production VM path, allocation harness и documented benchmark baseline |
 
 Текущий Rust API использует `SourceSpan` с `SourceId`; слова `export`, `package`, `from` и `as` зарезервированы и отклоняются на месте identifiers обычным `E1100`. Следующие этапы начинаются только после отдельной задачи и выполненного DoD предыдущего этапа.
 

@@ -4,8 +4,8 @@ mod resolve;
 mod types;
 
 pub use builtins::{
-    BUILTINS, BuiltinDescriptor, BuiltinSignature, Determinism, Purity, Statefulness,
-    builtin_by_name, builtin_descriptor,
+    BUILTINS, BuiltinDescriptor, BuiltinSignature, Determinism, Purity, ResourceModel,
+    RuntimeCapability, Statefulness, builtin_by_name, builtin_descriptor,
 };
 pub use check::check_program;
 pub use resolve::{BindingSymbol, SymbolStorage};

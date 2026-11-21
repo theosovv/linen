@@ -1,0 +1,3 @@
+let wave = sine(480);
+let out = wave;
+render 1ms;

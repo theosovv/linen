@@ -8,8 +8,9 @@
 2. [`docs/linen — подготовка к экосистеме.md`](../linen%20%E2%80%94%20%D0%BF%D0%BE%D0%B4%D0%B3%D0%BE%D1%82%D0%BE%D0%B2%D0%BA%D0%B0%20%D0%BA%20%D1%8D%D0%BA%D0%BE%D1%81%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D0%B5.md) описывает будущую экосистему и ограничения, которые нельзя терять при развитии компилятора. Он дополняет, но не заменяет `SPEC.md`.
 3. `docs/adr/` фиксирует нетривиальные архитектурные решения и их последствия. ADR не заменяет спецификацию.
 4. `docs/development/stages/` связывает требования этапа с конкретным объёмом изменений, тестами и результатами проверки.
-5. Задача по `task-template.md` задаёт небольшой проверяемый шаг и явный allowlist файлов.
-6. Код и тесты реализуют уже записанные решения, а не устанавливают новые контракты.
+5. [`backlog.md`](backlog.md) сохраняет обоснованные будущие улучшения вне текущего этапа; запись не разрешает реализацию без отдельной задачи.
+6. Задача по `task-template.md` задаёт небольшой проверяемый шаг и явный allowlist файлов.
+7. Код и тесты реализуют уже записанные решения, а не устанавливают новые контракты.
 
 `AGENTS.md` содержит обязательные рабочие правила для ИИ-агентов. При расхождении краткой документации со `SPEC.md` сначала исправляется документация; спорная семантика не выбирается агентом самостоятельно.
 
@@ -21,7 +22,7 @@
 
 ## Текущее состояние
 
-Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Корректирующий этап 1A завершён по `SPEC.md` 0.2.1: Source identity, явная session, source-aware diagnostics, determinism и новые reserved words реализованы и проверены. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Объём и фактическая приёмка находятся в [`stages/stage-01a-ecosystem-foundation.md`](stages/stage-01a-ecosystem-foundation.md). Этап 2 завершён по `SPEC.md` 0.3.0: resolver/type checker, Typed AST/lifts, `sine`, наивный interpreter, streaming WAV и `run` реализованы и прошли приёмку. Контракт, исторический отчёт подготовки, финальные результаты и DoD находятся в [`stages/stage-02-types-interpreter-wav.md`](stages/stage-02-types-interpreter-wav.md). Этап 3 не начат; IR, bytecode, VM, модульная система, manifest, registry и пакетный CLI не реализованы.
+Этапы 0 и 1 завершены по `SPEC.md` 0.1.1. Корректирующий этап 1A завершён по `SPEC.md` 0.2.1: Source identity, явная session, source-aware diagnostics, determinism и новые reserved words реализованы и проверены. `SourceId` действителен только в создавшей его `SourceMap`; независимые карты могут выдавать равные ID. Объём и фактическая приёмка находятся в [`stages/stage-01a-ecosystem-foundation.md`](stages/stage-01a-ecosystem-foundation.md). Этап 2 завершён по `SPEC.md` 0.3.0: resolver/type checker, Typed AST/lifts, `sine`, наивный interpreter, streaming WAV и `run` реализованы и прошли приёмку. Контракт, исторический отчёт подготовки, финальные результаты и DoD находятся в [`stages/stage-02-types-interpreter-wav.md`](stages/stage-02-types-interpreter-wav.md). Этап 3 завершён по `SPEC.md` 0.4.0: ADR 0004/0005, IR/bytecode/VM и VM renderer реализованы, 180 integration tests, allocation-counting harness и benchmark baseline зафиксированы в [`stages/stage-03-ir-bytecode-vm.md`](stages/stage-03-ir-bytecode-vm.md). Этап 4 не начат. Модульная система, manifest, registry и пакетный CLI не реализованы.
 
 ## Цикл работы
 

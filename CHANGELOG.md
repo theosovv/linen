@@ -6,6 +6,10 @@
 
 ### Added
 
+- Production path этапа 3 переведён на verified IR/bytecode и блочную VM: renderer использует один preallocated scratch buffer, variable blocks и source mapping через debug origins. Naive production interpreter удалён после three-way parity; reference остаётся независимым oracle. Structured VM creation/runtime errors получают CLI exit `3`, missing origin обрабатывается явно.
+- Allocation-counting integration test с разрешённым test-only `GlobalAlloc` подтверждает 0 heap allocations в steady-state `render_into` и `reset`. Production library/binary сохраняют `#![forbid(unsafe_code)]`; новых dependencies нет. Финальный corpus содержит 180 integration tests, все проходят.
+- Спецификация 0.4.0 для этапа 3: canonical typed DAG, evaluation roots всех top-level bindings, sharing/NodeOrigin, IR/bytecode verification, capability/resource models, typed registers/StateId/output, debug stripping, block VM/reset/errors и renderer migration. Добавлены ADR 0004/0005 и stage/task documents.
+- Подготовительный test-facing каркас этапа 3: IR/bytecode/VM representations, descriptors, configs, structured compile/VM errors, facade `create_vm` и ровно семь явных временных заглушек. Добавлены 52 integration tests в `ir_verify`, `bytecode_verify`, `vm`, `differential`, `properties`, `compatibility`, три fixtures и fixed-seed generator. Все 173 tests компилируются; 99 passed, 74 ожидаемых failed до production-реализации, 0 ignored.
 - Production-реализация этапа 2: resolver и детерминированные `BindingId`/`BuiltinId`, session-owned `SymbolStorage`, `Float`/`Sig`, Typed AST с явными lifts, descriptor-driven `sine`, checked compile-time arithmetic и duration/sample/RIFF validation.
 - Наивный посемпловый interpreter, независимое resettable состояние `sine`, runtime NaN/Inf diagnostics с structured sample index и потоковый mono PCM16 WAV-writer через `Write`.
 - Команда `run` с `--output`, `--sample-rate`, `--block-size`, `--max-seconds` и `--force`; temporary file создаётся в output directory и публикуется только после полного успеха. Semantic `check` выполняет name/type/duration checks с sample rate 48 000 Гц.
@@ -32,6 +36,9 @@
 
 ### Fixed
 
+- Block VM выполняет instructions в Vec order для каждого sample, а nonfinite output возвращается как structured VM error на `SetOutput`. Первый runtime diagnostic, его span и sample index снова совпадают с посемпловым reference при всех block sizes, включая конкурирующие errors в разных bindings.
+- Structural bytecode verifier не выделяет память пропорционально объявленным register/state counts. `Vm::new` проверяет arithmetic overflow и Vec capacity limits до verifier/runtime allocations и возвращает `SizeOverflow` вместо capacity-overflow panic.
+- `SetOutput` получает отдельный origin полного out value, включая aliases; frequency origin `Sine` сохранён для `E4001`. Добавлены regression fixtures/tests и exact-span проверка.
 - Повторная semantic compilation в одной `CompileSession` начинается с пустого `SymbolStorage`: `BindingId` снова выдаются от нуля, результат и storage не зависят от предыдущих компиляций.
 - Atomic publish без `--force` использует создание hard link на завершённый temporary file вместо небезопасного безусловного rename. Broken symlinks и файлы, появившиеся после предварительной проверки, не перезаписываются.
 - Diagnostics получили конкретные имена, types, arity, sample rate и limits вместо повторяющихся generic messages. Renderer выводит secondary source locations и notes; E1102 и пояснения E2004 исправлены, E4000 показывает invalid numeric value.
@@ -53,6 +60,7 @@
 
 ### Completed
 
+- Этап 3 завершён 2026-11-21 по спецификации 0.4.0: IR/bytecode/block VM, VM renderer, source diagnostics, differential/properties/compatibility, allocation-free steady-state и benchmark baseline проверены. Все 180 integration tests и общий набор проходят.
 - Этап 2 завершён 2026-11-20 по спецификации 0.3.0: Typed AST/lifts, `sine`, interpreter, streaming WAV, `run`, regression-исправления и ручная Beep/atomic/determinism приёмка выполнены. Все 121 integration tests и общий проверочный набор проходят.
 - Этап 1 завершён по спецификации 0.1.1: lexer, parser, source diagnostics и `check` прошли приёмку.
 - Этап 1A завершён по спецификации 0.2.1: SourceMap/SourceSpan, session/facade, source-aware diagnostics, CLI logical names, reserved words и determinism прошли узкие и общие проверки.
@@ -64,4 +72,4 @@
 - Миграция `Span` → `SourceSpan` и source-aware API затрагивает только нестабильный внутренний Rust API. Стабильные diagnostic codes, primary byte offsets, fail-fast order и Beep syntax сохранены.
 - Включение semantics в `check` является документированным переходом этапа 2, а не ослаблением parser. Тексты diagnostics улучшены без изменения стабильных кодов и byte spans.
 - Однофайловый CLI сохраняет streams и exit codes: успешный `check` молчит, source error использует exit `1`, usage/config/UTF-8/file error — exit `2`, internal renderer error — exit `3`. `run` теперь реализован и печатает output report.
-- Пользовательские multi-file projects, module/package syntax, `inspect`, IR, bytecode, VM, stable bytecode ABI, registry и device packages не добавлены. Этап 3 не начат.
+- Пользовательские multi-file projects, module/package syntax, `inspect`, stable bytecode ABI, registry и device packages не добавлены. Этап 3 завершён: production IR/bytecode/VM и WAV renderer работают, существующие language/diagnostic/WAV contracts сохранены; benchmark baseline измерен для исправленного sample-major dispatch.

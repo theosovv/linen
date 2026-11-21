@@ -1,11 +1,15 @@
-mod interpreter;
 mod wav;
 
 use std::{error::Error, fmt, io};
 
-use crate::{Diagnostic, DiagnosticLabel, ErrorCode, SourceSpan, sema::TypedProgram};
+use crate::{
+    Diagnostic, DiagnosticLabel, ErrorCode, SourceSpan,
+    bytecode::Bytecode,
+    ir::Graph,
+    sema::TypedProgram,
+    vm::{Vm, VmConfig, VmCreateError, VmRuntimeError},
+};
 
-pub use interpreter::NaiveInterpreter;
 pub use wav::{NonFiniteSample, WavError, quantize_pcm16, write_wav_header};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -60,6 +64,8 @@ impl Error for RenderConfigError {}
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledProgram {
     pub typed: TypedProgram,
+    pub ir: Graph,
+    pub bytecode: Bytecode,
     pub config: RenderConfig,
 }
 
@@ -74,6 +80,9 @@ pub struct RenderReport {
 pub enum RenderError {
     Diagnostic(Diagnostic),
     Io(io::Error),
+    VmCreate(VmCreateError),
+    VmRuntime(VmRuntimeError),
+    MissingDebugOrigin { instruction: usize },
 }
 
 impl fmt::Display for RenderError {
@@ -81,6 +90,12 @@ impl fmt::Display for RenderError {
         match self {
             Self::Diagnostic(diagnostic) => write!(formatter, "{diagnostic}"),
             Self::Io(error) => write!(formatter, "could not write rendered audio: {error}"),
+            Self::VmCreate(error) => write!(formatter, "could not initialize VM: {error}"),
+            Self::VmRuntime(error) => error.fmt(formatter),
+            Self::MissingDebugOrigin { instruction } => write!(
+                formatter,
+                "missing debug origin for VM instruction {instruction}"
+            ),
         }
     }
 }
@@ -90,6 +105,9 @@ impl Error for RenderError {
         match self {
             Self::Diagnostic(diagnostic) => Some(diagnostic),
             Self::Io(error) => Some(error),
+            Self::VmCreate(error) => Some(error),
+            Self::VmRuntime(error) => Some(error),
+            Self::MissingDebugOrigin { .. } => None,
         }
     }
 }
@@ -128,6 +146,16 @@ pub fn render<W: io::Write>(
         .value
         .span;
 
+    let mut vm = Vm::new(
+        &program.bytecode,
+        VmConfig {
+            sample_rate: program.config.sample_rate,
+            block_size: program.config.block_size,
+        },
+    )
+    .map_err(RenderError::VmCreate)?;
+    let mut scratch = vec![0.0; program.config.block_size];
+
     write_wav_header(writer, program.config.sample_rate, render.render_samples).map_err(
         |error| match error {
             WavError::Io(error) => RenderError::Io(error),
@@ -142,24 +170,27 @@ pub fn render<W: io::Write>(
         },
     )?;
 
-    let mut interpreter = NaiveInterpreter::new(&program.typed);
-    for sample_index in 0..render.render_samples {
-        let sample = interpreter
-            .next_sample(sample_index, program.config.sample_rate)
-            .map_err(|diagnostic| {
-                RenderError::Diagnostic(ensure_sample_index(diagnostic, sample_index))
-            })?;
+    let mut sample_index = 0_u64;
+    while sample_index < render.render_samples {
+        let remaining = render.render_samples - sample_index;
+        let length = usize::try_from(remaining)
+            .unwrap_or(usize::MAX)
+            .min(scratch.len());
+        let block_length = u64::try_from(length)
+            .map_err(|_| RenderError::VmRuntime(VmRuntimeError::SampleIndexOverflow))?;
 
-        if !sample.is_finite() {
-            return Err(RenderError::Diagnostic(nonfinite_output(
-                output_span,
-                sample_index,
-            )));
+        vm.render_into(&mut scratch[..length])
+            .map_err(|error| map_vm_runtime_error(program, error, output_span))?;
+
+        for (offset, sample) in scratch[..length].iter().copied().enumerate() {
+            let sample_index = sample_index + offset as u64;
+            let sample = quantize_pcm16(sample).map_err(|_| {
+                RenderError::Diagnostic(nonfinite_output(output_span, sample_index))
+            })?;
+            writer.write_all(&sample.to_le_bytes())?;
         }
 
-        let sample = quantize_pcm16(sample)
-            .map_err(|_| RenderError::Diagnostic(nonfinite_output(output_span, sample_index)))?;
-        writer.write_all(&sample.to_le_bytes())?;
+        sample_index += block_length;
     }
 
     Ok(RenderReport {
@@ -169,11 +200,43 @@ pub fn render<W: io::Write>(
     })
 }
 
-fn ensure_sample_index(mut diagnostic: Diagnostic, sample_index: u64) -> Diagnostic {
-    if diagnostic.code() == ErrorCode::NonFiniteOutput && diagnostic.sample_index().is_none() {
-        diagnostic = diagnostic.with_sample_index(sample_index);
-    }
-    diagnostic
+fn map_vm_runtime_error(
+    program: &CompiledProgram,
+    error: VmRuntimeError,
+    output_span: SourceSpan,
+) -> RenderError {
+    let (instruction, sample_index) = match error {
+        VmRuntimeError::NonFiniteFrequency {
+            instruction,
+            sample_index,
+            ..
+        } => (instruction, sample_index),
+        VmRuntimeError::NonFiniteOutput { sample_index } => {
+            return RenderError::Diagnostic(nonfinite_output(output_span, sample_index));
+        }
+        other => return RenderError::VmRuntime(other),
+    };
+
+    let Some(origin) = program
+        .bytecode
+        .debug_origins
+        .as_ref()
+        .and_then(|origins| origins.get(instruction))
+    else {
+        return RenderError::MissingDebugOrigin { instruction };
+    };
+
+    RenderError::Diagnostic(
+        Diagnostic::error(
+            ErrorCode::NonFiniteOutput,
+            "sine frequency contains NaN or infinity",
+            DiagnosticLabel::new(
+                origin.primary,
+                "this argument produces the invalid frequency",
+            ),
+        )
+        .with_sample_index(sample_index),
+    )
 }
 
 fn nonfinite_output(span: SourceSpan, sample_index: u64) -> Diagnostic {

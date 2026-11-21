@@ -1,7 +1,6 @@
 #[path = "../test-support/reference/mod.rs"]
 mod reference;
 
-use linen::render::NaiveInterpreter;
 use linen::sema::{
     BindingId, BuiltinId, Type, TypedBinding, TypedExpr, TypedExprKind, TypedProgram, TypedRender,
 };
@@ -125,16 +124,17 @@ fn adr_0006_reference_reset_repeats_state() {
 #[test]
 fn adr_0009_reference_matches_production_without_sharing_dsp() {
     let program = compile_program("let out = sine(480) * 0.1; render 1ms;");
-    let mut production = NaiveInterpreter::new(&program.typed);
+    let mut production = linen::create_vm(&program).expect("production VM must be created");
+    let mut production_samples = vec![0.0; program.typed.render.render_samples as usize];
+    production
+        .render_into(&mut production_samples)
+        .expect("production samples should be finite");
     let mut reference = ReferenceInterpreter::new(&program.typed);
 
-    for index in 0..program.typed.render.render_samples {
-        let actual = production
-            .next_sample(index, 48_000)
-            .expect("production sample should be finite");
+    for (index, actual) in production_samples.iter().enumerate() {
         let expected = reference
-            .next_sample(index, 48_000)
+            .next_sample(index as u64, 48_000)
             .expect("reference sample should be finite");
-        assert_close(actual, expected, index as usize);
+        assert_close(*actual, expected, index);
     }
 }
