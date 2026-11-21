@@ -1,0 +1,3 @@
+let out = sine(0) / 0;
+let later = sine(1 / (sine(480) - 1));
+render 2ms;

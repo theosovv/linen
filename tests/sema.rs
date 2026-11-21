@@ -18,7 +18,9 @@ fn assert_error(source: &str, code: ErrorCode, start: usize, end: usize) -> Comp
     let diagnostic = outcome
         .result
         .as_ref()
-        .expect_err("the source should be rejected");
+        .expect_err("the source should be rejected")
+        .as_diagnostic()
+        .expect("a rejected source must have a source diagnostic");
     let span = diagnostic.primary().span();
 
     assert_eq!(diagnostic.code(), code);
@@ -262,7 +264,12 @@ fn spec_6_2_duplicate_binding_precedes_value_errors_and_has_secondary_span() {
         19,
         24,
     );
-    let diagnostic = outcome.result.as_ref().unwrap_err();
+    let diagnostic = outcome
+        .result
+        .as_ref()
+        .unwrap_err()
+        .as_diagnostic()
+        .expect("source error must be diagnostic");
     assert_eq!(diagnostic.secondary().len(), 1);
     assert_eq!(diagnostic.secondary()[0].span().start(), 4);
     assert_eq!(diagnostic.secondary()[0].span().end(), 9);
@@ -306,7 +313,12 @@ fn spec_6_2_annotation_mismatches_have_deterministic_primary_and_secondary_spans
         19,
         26,
     );
-    let diagnostic = outcome.result.as_ref().unwrap_err();
+    let diagnostic = outcome
+        .result
+        .as_ref()
+        .unwrap_err()
+        .as_diagnostic()
+        .expect("source error must be diagnostic");
     assert_eq!(diagnostic.secondary().len(), 1);
     assert_eq!(diagnostic.secondary()[0].span().start(), 11);
     assert_eq!(diagnostic.secondary()[0].span().end(), 16);
@@ -322,7 +334,12 @@ fn spec_6_2_annotation_mismatches_have_deterministic_primary_and_secondary_spans
 #[test]
 fn spec_6_2_semantic_messages_are_specific_and_do_not_repeat_the_primary_label() {
     let assert_messages = |outcome: &CompileOutcome, message: &str, primary: &str| {
-        let diagnostic = outcome.result.as_ref().expect_err("expected a diagnostic");
+        let diagnostic = outcome
+            .result
+            .as_ref()
+            .expect_err("expected a diagnostic")
+            .as_diagnostic()
+            .expect("source error must be diagnostic");
         assert_eq!(diagnostic.message(), message);
         assert_eq!(diagnostic.primary().message(), primary);
         assert_ne!(diagnostic.message(), diagnostic.primary().message());
@@ -340,7 +357,14 @@ fn spec_6_2_semantic_messages_are_specific_and_do_not_repeat_the_primary_label()
         "this name was already declared in the same scope",
     );
     assert_eq!(
-        duplicate.result.as_ref().unwrap_err().secondary()[0].message(),
+        duplicate
+            .result
+            .as_ref()
+            .unwrap_err()
+            .as_diagnostic()
+            .expect("source error must be diagnostic")
+            .secondary()[0]
+            .message(),
         "first definition of `value` is here"
     );
 
@@ -356,7 +380,13 @@ fn spec_6_2_semantic_messages_are_specific_and_do_not_repeat_the_primary_label()
         "no previous binding defines `missing`",
     );
     assert_eq!(
-        unknown.result.as_ref().unwrap_err().notes(),
+        unknown
+            .result
+            .as_ref()
+            .unwrap_err()
+            .as_diagnostic()
+            .expect("source error must be diagnostic")
+            .notes(),
         ["declare bindings before use; self and forward references are not allowed"]
     );
 
@@ -408,7 +438,14 @@ fn spec_6_2_semantic_messages_are_specific_and_do_not_repeat_the_primary_label()
         "this value has type `Sig`",
     );
     assert_eq!(
-        mismatch.result.as_ref().unwrap_err().secondary()[0].message(),
+        mismatch
+            .result
+            .as_ref()
+            .unwrap_err()
+            .as_diagnostic()
+            .expect("source error must be diagnostic")
+            .secondary()[0]
+            .message(),
         "this annotation requires type `Float`"
     );
 
@@ -462,7 +499,12 @@ fn spec_4_4_constant_zero_division_and_nonfinite_float_are_distinct_errors() {
 #[test]
 fn spec_6_2_numeric_duration_and_limit_messages_describe_the_failed_contract() {
     let assert_messages = |outcome: &CompileOutcome, message: &str, primary: &str| {
-        let diagnostic = outcome.result.as_ref().expect_err("expected a diagnostic");
+        let diagnostic = outcome
+            .result
+            .as_ref()
+            .expect_err("expected a diagnostic")
+            .as_diagnostic()
+            .expect("source error must be diagnostic");
         assert_eq!(diagnostic.message(), message);
         assert_eq!(diagnostic.primary().message(), primary);
         assert_ne!(diagnostic.message(), diagnostic.primary().message());
@@ -577,7 +619,13 @@ fn spec_4_4_duration_samples_use_checked_rounding() {
         .expect("the custom sample rate is valid")
         .result
         .expect_err("a positive duration below half a sample must be rejected");
-    assert_eq!(below_half.code(), ErrorCode::InvalidDuration);
+    assert_eq!(
+        below_half
+            .as_diagnostic()
+            .expect("invalid duration must be a source diagnostic")
+            .code(),
+        ErrorCode::InvalidDuration
+    );
 }
 
 #[test]

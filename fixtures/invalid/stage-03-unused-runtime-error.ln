@@ -1,0 +1,4 @@
+let zero = sine(0);
+let unused = sine(zero / zero);
+let out = sine(480);
+render 1ms;

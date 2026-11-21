@@ -2,10 +2,13 @@ use std::{error::Error, fmt};
 
 use crate::{
     Diagnostic,
+    bytecode::{self, BytecodeVerifyError},
+    ir::{self, IrVerifyError},
     render::{CompiledProgram, RenderConfig, RenderConfigError},
     sema::{SymbolStorage, check_program},
     source::{SourceId, SourceMap},
     syntax::{ParserConfig, Program, parse_with_config},
+    vm::{Vm, VmConfig, VmCreateError},
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -27,7 +30,61 @@ pub struct CheckOutcome {
 pub struct CompileOutcome {
     pub sources: SourceMap,
     pub symbols: SymbolStorage,
-    pub result: Result<CompiledProgram, Diagnostic>,
+    pub result: Result<CompiledProgram, CompileError>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompileError {
+    Diagnostic(Diagnostic),
+    IrVerify(IrVerifyError),
+    BytecodeVerify(BytecodeVerifyError),
+}
+
+impl CompileError {
+    pub const fn as_diagnostic(&self) -> Option<&Diagnostic> {
+        match self {
+            Self::Diagnostic(diagnostic) => Some(diagnostic),
+            Self::IrVerify(_) | Self::BytecodeVerify(_) => None,
+        }
+    }
+}
+
+impl fmt::Display for CompileError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Diagnostic(diagnostic) => diagnostic.fmt(formatter),
+            Self::IrVerify(error) => error.fmt(formatter),
+            Self::BytecodeVerify(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl Error for CompileError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Diagnostic(diagnostic) => Some(diagnostic),
+            Self::IrVerify(error) => Some(error),
+            Self::BytecodeVerify(error) => Some(error),
+        }
+    }
+}
+
+impl From<Diagnostic> for CompileError {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self::Diagnostic(diagnostic)
+    }
+}
+
+impl From<IrVerifyError> for CompileError {
+    fn from(error: IrVerifyError) -> Self {
+        Self::IrVerify(error)
+    }
+}
+
+impl From<BytecodeVerifyError> for CompileError {
+    fn from(error: BytecodeVerifyError) -> Self {
+        Self::BytecodeVerify(error)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -88,7 +145,7 @@ impl CompileSession {
         &mut self,
         source: SourceId,
         render_config: RenderConfig,
-    ) -> Result<Result<CompiledProgram, Diagnostic>, SessionError> {
+    ) -> Result<Result<CompiledProgram, CompileError>, SessionError> {
         render_config
             .validate()
             .map_err(SessionError::InvalidRenderConfiguration)?;
@@ -97,14 +154,35 @@ impl CompileSession {
             .get(source)
             .ok_or(SessionError::UnknownSource(source))?;
         let parsed = parse_with_config(file.text(), source, self.config.parser);
-        let result = parsed.and_then(|program| {
-            check_program(&program, &mut self.symbols, render_config.sample_rate).map(|typed| {
-                CompiledProgram {
+        let result = parsed
+            .map_err(CompileError::Diagnostic)
+            .and_then(|program| {
+                let typed = check_program(&program, &mut self.symbols, render_config.sample_rate)?;
+                let output_origin = typed
+                    .bindings
+                    .iter()
+                    .find(|binding| binding.id == typed.output)
+                    .expect("typed output must refer to a binding")
+                    .value
+                    .span;
+                let graph = ir::lower(&typed);
+                ir::verify(&graph, &self.sources)?;
+                let bytecode = bytecode::codegen(
+                    &graph,
+                    ir::NodeOrigin {
+                        primary: output_origin,
+                    },
+                );
+                bytecode::verify(&bytecode)?;
+                bytecode::verify_origins(&bytecode, &self.sources)?;
+
+                Ok(CompiledProgram {
                     typed,
+                    ir: graph,
+                    bytecode,
                     config: render_config,
-                }
-            })
-        });
+                })
+            });
         Ok(result)
     }
 }
@@ -170,4 +248,14 @@ pub fn compile_with_config(
         symbols: session.symbols,
         result,
     })
+}
+
+pub fn create_vm(program: &CompiledProgram) -> Result<Vm<'_>, VmCreateError> {
+    Vm::new(
+        &program.bytecode,
+        VmConfig {
+            sample_rate: program.config.sample_rate,
+            block_size: program.config.block_size,
+        },
+    )
 }

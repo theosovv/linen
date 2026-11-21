@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -7,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use linen::{
-    CheckOutcome, CompileConfig, CompileOutcome, Diagnostic, RenderConfig, RenderConfigError,
-    SourceMap,
+    CheckOutcome, CompileConfig, CompileError, CompileOutcome, Diagnostic, RenderConfig,
+    RenderConfigError, SourceMap,
 };
 
 const HELP: &str = concat!(
@@ -131,7 +133,13 @@ fn run_render(options: RunOptions) -> ExitCode {
     };
     let program = match result {
         Ok(program) => program,
-        Err(diagnostic) => return source_error(&sources, &diagnostic),
+        Err(CompileError::Diagnostic(diagnostic)) => {
+            return source_error(&sources, &diagnostic);
+        }
+        Err(error) => {
+            eprintln!("internal error: {error}");
+            return ExitCode::from(3);
+        }
     };
 
     let (temporary_path, mut temporary_file) = match create_temporary_output(&options.output) {
@@ -166,6 +174,11 @@ fn run_render(options: RunOptions) -> ExitCode {
         (Err(linen::RenderError::Diagnostic(diagnostic)), _) => {
             let _ = fs::remove_file(&temporary_path);
             return source_error(&sources, &diagnostic);
+        }
+        (Err(error), _) => {
+            let _ = fs::remove_file(&temporary_path);
+            eprintln!("internal error: {error}");
+            return ExitCode::from(3);
         }
     };
 

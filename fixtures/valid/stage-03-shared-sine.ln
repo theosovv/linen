@@ -1,0 +1,5 @@
+let frequency = 480;
+let wave = sine(frequency);
+let mixed = wave * 0.3;
+let out = mixed;
+render 5s;

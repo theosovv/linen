@@ -23,6 +23,19 @@ pub enum Statefulness {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeCapability {
+    CoreAudio,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ResourceModel {
+    pub scalar_registers: usize,
+    pub audio_registers: usize,
+    pub state_slots: usize,
+    pub state_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BuiltinDescriptor {
     pub id: BuiltinId,
     pub name: &'static str,
@@ -30,6 +43,8 @@ pub struct BuiltinDescriptor {
     pub purity: Purity,
     pub determinism: Determinism,
     pub statefulness: Statefulness,
+    pub capability: RuntimeCapability,
+    pub resources: ResourceModel,
     pub documentation_name: &'static str,
 }
 
@@ -43,6 +58,13 @@ pub const BUILTINS: [BuiltinDescriptor; 1] = [BuiltinDescriptor {
     purity: Purity::NoSideEffects,
     determinism: Determinism::Deterministic,
     statefulness: Statefulness::Stateful,
+    capability: RuntimeCapability::CoreAudio,
+    resources: ResourceModel {
+        scalar_registers: 0,
+        audio_registers: 1,
+        state_slots: 1,
+        state_bytes: size_of::<f64>(),
+    },
     documentation_name: "sine",
 }];
 

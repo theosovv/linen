@@ -3,8 +3,8 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.3.0
-- Дата: 2026-11-16
+- Версия спецификации: 0.4.0
+- Дата: 2026-11-20
 - Рабочее название: **linen**
 - Репозиторий: `linen`
 - Расширение файлов: `.ln`
@@ -12,7 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
-- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A завершён по спецификации 0.2.1; этап 2 завершён по спецификации 0.3.0, production-реализация и приёмка зафиксированы в stage document; этап 3 не начат
+- Состояние реализации: этапы 0 и 1 завершены по спецификации 0.1.1; корректирующий этап 1A завершён по спецификации 0.2.1; этап 2 завершён по спецификации 0.3.0; этап 3 завершён по спецификации 0.4.0, включая VM renderer, 180 integration tests, allocation harness и documented benchmark baseline; этап 4 не начат
 
 ## 0. Как читать документ
 
@@ -529,7 +529,7 @@ render 4s;
                         Diagnostics/report
 ```
 
-До появления IR и VM используется короткий путь `Typed AST → naive sample interpreter → WAV`. Временный production-интерпретатор этапа 2 находится в `render/interpreter.rs`, не выполняет host I/O и использует числовые алгоритмы `dsp`; он не создаёт IR/bytecode/VM. Независимый reference находится в `test-support/reference` и не разделяет production evaluation/DSP. После появления VM production-путь идёт только через IR и bytecode, а независимый наивный путь сохраняется как oracle. Архитектура Typed AST/lift и граница интерпретатора зафиксированы в ADR 0003.
+На этапе 2 использовался короткий путь `Typed AST → naive sample interpreter → WAV`; временный production-интерпретатор находился в `render/interpreter.rs` и был удалён после parity на этапе 3. Теперь production-путь идёт только через IR и bytecode. Независимый reference находится в `test-support/reference`, не разделяет production evaluation/DSP и сохраняется как oracle. Архитектура Typed AST/lift и граница интерпретатора зафиксированы в ADR 0003.
 
 `SourceMap` уже на однофайловом пути использует ту же модель, которая позднее поддержит несколько источников. Loading выполняется только на host/project boundary. Resolver получает готовые `SourceFile` и будущие логические module IDs, но не загружает и не скачивает зависимости.
 
@@ -694,13 +694,14 @@ BuiltinDescriptor
 
 ### 5.6. Сигнальный IR
 
-IR — типизированный граф, близкий к SSA по духу, но без преждевременной поддержки общего SSA/control flow.
+IR — типизированный граф, близкий к SSA по духу, но без преждевременной поддержки общего SSA/control flow. Этап 3 использует canonical topological DAG без optimization passes.
 
 Концептуальные сущности:
 
 ```text
 Graph
   nodes: Vec<Node>
+  roots: Vec<NodeId>
   output: NodeId
   render_samples: u64
 
@@ -712,7 +713,7 @@ Node
 
 NodeOrigin
   primary: SourceSpan
-  inlined_from: optional chain of call spans   # появляется с inlining
+  inlined_from: optional chain of call spans   # появляется с inlining на этапе 4
 
 NodeOp (начальный набор)
   ConstFloat(f64)
@@ -727,58 +728,87 @@ NodeOp (начальный набор)
 
 Требования:
 
-- каждый input ссылается на существующий узел;
-- arity и типы входов соответствуют операции;
-- граф ацикличен;
-- все узлы, кроме явно разрешённых unreachable-узлов будущих passes, достижимы из `output`;
-- `NodeId` стабилен только внутри одной конкретной версии графа;
-- после оптимизирующего pass ID могут измениться;
-- каждый исходный IR-узел имеет валидный primary `SourceSpan`; origin не влияет на звук;
+- `NodeId` — zero-based Vec index, стабильный только внутри одной конкретной версии графа; `Node.id` совпадает с фактическим index;
+- каждый input ссылается на существующий узел с индексом строго меньше consuming node, поэтому canonical graph ацикличен и не требует topological sort в codegen;
+- arity и типы входов соответствуют операции. `ConstFloat` и scalar arithmetic имеют тип `Float`; `LiftFloatToSig` переводит `Float` в `Sig`; signal arithmetic сохраняет `Sig`; `Sine` принимает и возвращает `Sig`;
+- входы binary IR operation имеют одинаковый тип, совпадающий с результатом: mixed arithmetic уже содержит явные `LiftFloatToSig` nodes. Scalar arithmetic остаётся `f64`, signal runtime — `f32`;
+- `roots` содержит value каждого top-level binding в declaration order, включая bindings, не используемые в `out`. Это сохраняет текущее вычисление всех bindings и порядок их runtime errors. Несколько roots могут содержать один `NodeId` как sharing, а не повторное вычисление;
+- `output` — value binding `out`, обязан входить в `roots` и иметь тип `Sig`; `render_samples` копируется из Typed AST;
+- все узлы достижимы хотя бы из одного root. Unreachable nodes будущих passes требуют отдельного контракта; dead-node elimination на этапе 3 отсутствует;
+- lowering обрабатывает bindings и operands слева направо. Identifier reference повторно использует `NodeId` resolved binding; `Group` прозрачен. CSE, constant folding, reordering и другие optimizations не выполняются;
+- после оптимизирующего pass в будущем ID могут измениться;
+- каждый исходный IR-узел имеет валидный primary `SourceSpan`; origin не влияет на звук. На этапе 3 `NodeOrigin` фактически содержит только primary, без пустых inline/merged/unknown состояний;
+- origin `Sine` указывает на frequency expression для стабильной `E4001`; полный call span остаётся в Typed AST. Origin остальных nodes соответствует их Typed expression;
 - после optimization нельзя сохранять заведомо ложный span: при объединении узлов сохраняется точный origin либо явный merged/unknown origin по правилам соответствующего ADR;
 - source origin используется diagnostics/debug info, но может отсутствовать в compact production bytecode;
 - сериализуемый стабильный формат IR на старте отсутствует.
 
-Verifier возвращает структурированную ошибку. В test/debug-сборках нарушение внутреннего инварианта может стать assertion с понятным сообщением; в library API ошибочный пользовательский ввод никогда не должен доходить до такого assertion.
+Каждый добавленный IR op имеет центральный descriptor с runtime capability и resource model. На этапе 3 существует только `RuntimeCapability::CoreAudio`, без пустого перечисления будущих возможностей. `ResourceModel` указывает scalar registers, audio registers, state slots и state bytes на node. Const/scalar ops требуют один scalar register; lift/signal ops — один audio register; `Sine` дополнительно требует один state slot и одну `f64` phase. Эти metadata согласованы с `BuiltinDescriptor` `sine`; buffer bytes дополнительно зависят от maximum block size.
+
+`verify(graph, sources)` возвращает структурированную ошибку и проверяет IDs, input references/order, типы, finite constants, roots/output, reachability и разрешимость origins в исходной `SourceMap`, включая offsets и UTF-8 boundaries. Нарушение — internal compiler invariant с typed compile error и CLI exit `3`, а не source diagnostic, молчаливый fallback или panic на пользовательской программе. Подробная архитектура — ADR 0004.
 
 ### 5.7. Bytecode и VM
 
-VM регистровая и блочная. Различаются:
+VM регистровая и блочная. Различаются typed scalar registers (`f64`), audio registers (`f32` buffers), node state slots и dedicated output audio register. `ScalarRegister`, `AudioRegister` и `StateId` имеют отдельные zero-based index spaces.
 
-- scalar registers;
-- audio registers;
-- node state slots;
-- output register.
-
-Концептуальный набор инструкций:
+Начальный bytecode:
 
 ```text
-ConstScalar   dst, value
+Bytecode
+  instructions: Vec<Instruction>
+  scalar_register_count: usize
+  audio_register_count: usize
+  state_count: usize
+  output: AudioRegister
+  debug_origins: Option<Vec<NodeOrigin>>
+
+ConstScalar   dst_scalar, value: f64
 Lift          dst_audio, src_scalar
-NegScalar     dst, src
-NegAudio      dst, src
-BinaryScalar  op, dst, lhs, rhs
-BinaryAudio   op, dst, lhs, rhs      # operand может быть scalar или audio
-Sine          dst_audio, freq        # freq может быть scalar или audio
+NegScalar     dst_scalar, src_scalar
+NegAudio      dst_audio, src_audio
+BinaryScalar  op, dst_scalar, lhs_scalar, rhs_scalar
+BinaryAudio   op, dst_audio, lhs_operand, rhs_operand
+Sine          dst_audio, freq_operand, state
 SetOutput     src_audio
+
+Operand       Scalar(ScalarRegister) | Audio(AudioRegister)
 ```
 
-Физический layout инструкций может меняться вместе с ADR. Семантический контракт важнее текстового disassembly. Bytecode не считается стабильным ABI раньше отдельного решения, но любой сохраняемый формат имеет явную bytecode/VM version. Debug artifact может связывать инструкцию/runtime error/probe с `NodeOrigin`; stripping debug info не меняет звук.
+Физический layout закреплён ADR 0005 и не является stable ABI. Codegen выделяет один register на IR node в canonical order, последовательные уникальные `StateId` для `Sine` и dedicated output register. Ровно одна финальная `SetOutput` копирует output node в output register; другие instructions не пишут в него. Buffer reuse и другие optimizations отсутствуют.
+
+Обычный codegen сохраняет explicit lifts и использует audio operands для signal arithmetic/`Sine`. Verifier и VM также допускают scalar `Operand` у `BinaryAudio` и `Sine`; scalar path и signal path обязаны согласовываться в пределах численного допуска. Скалярные вычисления используют `f64`, audio samples — `f32`; dynamic division сохраняет IEEE 754.
+
+`debug_origins = Some` содержит ровно один валидный `NodeOrigin` на instruction. Codegen получает origin полного out value для `SetOutput` отдельно от output node, поэтому frequency origin `Sine` не подменяет полный out span. `None` обозначает compact bytecode. Stripping debug info не меняет instructions, state/register layout или звук. Bytecode не считается стабильным ABI раньше отдельного решения, но любой сохраняемый формат, если он появится отдельной задачей, имеет явную bytecode/VM version с первой persisted версии.
+
+Правила bytecode verifier:
+
+- тип и диапазон каждого register index проверяются до исполнения; каждый input инициализирован предыдущей instruction;
+- operands соответствуют instruction, `ConstScalar` finite, dedicated output не записывается обычными instructions;
+- каждый `StateId` существует, принадлежит ровно одному `Sine`, и все state slots покрыты;
+- существует ровно одна финальная `SetOutput` с инициализированным audio src и in-range output;
+- structural verifier не требует `SourceMap`; origin verifier дополнительно проверяет количество и валидность retained spans в исходной карте;
+- structural verifier хранит только фактически встреченные initialized indices и не выделяет память пропорционально декларированным count-fields;
+- любая повреждённая программа возвращает structured verifier error до dispatch, а не молчаливую тишину или panic.
 
 Правила VM:
 
-- тип и диапазон каждого register index проверяются bytecode verifier до исполнения;
-- `dst` не используется как input до инициализации;
-- audio register содержит буфер максимальной длины, выбранной при создании VM;
-- `render_into(&mut [f32])` принимает непустые блоки переменной длины в пределах конфигурации; пустой блок — no-op;
-- состояние узла индексируется отдельным `StateId`, а не номером инструкции, чтобы удаление инструкций не ломало layout незаметно;
-- все буферы и state выделяются при создании/reset-подготовке VM;
-- steady-state `render_into` не выделяет память и не обращается к файловой системе, stdout, сети и системным часам;
-- `reset()` сбрасывает регистры при необходимости и обязательно возвращает всё node state в начальное состояние;
-- VM не использует размер текущего блока для изменения алгоритма, кроме выбора эквивалентного vectorized/scalar пути;
-- VM core не импортирует CLI и не знает о WAV, VST, display, GPIO или конкретном windowing toolkit;
-- любая неподдерживаемая или повреждённая инструкция — ошибка verifier/runtime, не молчаливая тишина.
+- `VmConfig` содержит validated `sample_rate` и `block_size`; последний является maximum block length и включает обязательные размеры `1`, `3`, `64`, `128`, `256`;
+- audio register содержит буфер максимальной длины, выбранной при создании VM; все buffers/registers/state выделяются при создании, arithmetic overflow и Vec capacity limits проверяются до verifier metadata и runtime allocations;
+- `render_into(&mut [f32])` принимает блоки переменной длины `1..=block_size`; пустой блок — no-op без продвижения state/sample index, слишком большой блок — typed error до dispatch;
+- для каждого sample блока instructions исполняются в Vec order, затем VM переходит к следующему sample. Scalar instructions на этапе 3 повторяются для каждого sample без отдельной оптимизации. Это сохраняет fail-fast порядок посемплового interpreter и делает выбор runtime diagnostic независимым от block partition;
+- состояние узла индексируется отдельным `StateId`, а не `NodeId` или номером инструкции;
+- `Sine` вызывает production `dsp::Sine` на каждом sample по ADR 0006. Nonfinite frequency возвращает structured VM error с instruction/state/absolute sample index и не меняет phase ошибочного oscillator;
+- финальная `SetOutput` возвращает structured `NonFiniteOutput` с absolute sample index до перехода к следующему sample. Поскольку все bindings уже вычислены для этого sample, сохраняется прежний приоритет frequency errors над output error на том же sample;
+- VM отслеживает absolute zero-based sample index между variable-size calls. После успешного dispatch output register копируется в caller slice;
+- `reset()` сбрасывает registers при необходимости, обязательно возвращает всё node state в начальное состояние и сбрасывает absolute sample index;
+- steady-state `render_into` не выделяет память и не обращается к файловой системе, stdout, environment, сети и системным часам;
+- VM не использует размер текущего блока для изменения алгоритма, кроме выбора эквивалентного vectorized/scalar пути в будущем;
+- VM core не импортирует CLI, `render` и не знает о WAV, VST, display, GPIO или конкретном windowing toolkit;
+- любая неподдерживаемая или повреждённая инструкция — ошибка verifier/runtime, не молчаливый fallback.
 
-Скалярный путь `sine(constant)` и сигнальный путь `sine(signal)` могут иметь разные оптимизированные реализации, но обязаны согласовываться в пределах численного допуска.
+VM errors не содержат source `Diagnostic`. Production renderer использует retained origins для прежней `E4001` frequency diagnostic; structured nonfinite output он локализует полным span out value. Отсутствие необходимого origin после stripping является явной internal/render error, а не поводом выбрать другой span. Обычный production compile сохраняет origins, поэтому CLI diagnostics не меняются.
+
+Renderer выделяет один scratch block вне steady-state loop, разбивает checked `render_samples` на variable chunks и сохраняет прежние protective limit, streaming WAV, PCM16 и atomic publish. Подробная архитектура — ADR 0005.
 
 ### 5.8. Библиотечный facade
 
@@ -794,8 +824,9 @@ render(program, config, Write)
 
 Точные Rust-сигнатуры определяются вручную при реализации. Требования к facade:
 
-- простой `check`/`compile` создаёт `CompileSession` с одним источником; source-aware вариант принимает явное logical name и конфигурацию. На этапе 2 `check` дополнительно выполняет name/type/duration checks, но может сохранять syntax AST как успешный результат; `compile` возвращает Typed AST;
+- простой `check`/`compile` создаёт `CompileSession` с одним источником; source-aware вариант принимает явное logical name и конфигурацию. `check` выполняет name/type/duration checks, но может сохранять syntax AST как успешный результат. На этапе 2 `compile` возвращал Typed AST; начиная с этапа 3 `CompiledProgram` дополнительно содержит verified IR и bytecode;
 - source-level outcome владеет `SourceMap` вместе с `Result`, чтобы returned AST/diagnostic не оставались без источника. Compile outcome также сохраняет `SymbolStorage` для returned resolved IDs. Session-based caller удерживает сам session и передаёт только её IDs. Result из outcome разрешается через карту того же outcome или её идентичную копию;
+- compile outcome различает source `Diagnostic` и structured internal IR/bytecode verifier errors. Первые сохраняют source exit `1`; вторые являются compiler bugs и дают CLI exit `3`, не подменяются пользовательской diagnostic или panic. Точные Rust-сигнатуры нестабильны;
 - `SourceId` является map-local индексом. Независимые `SourceMap` могут выдавать равные ID, поэтому передача ID в другую session/outcome находится вне контракта API. Lookup, session и renderer проверяют наличие индекса, а не происхождение ID. Unknown `SourceId` означает отсутствующий в данной карте индекс и возвращает typed session/render error, а не diagnostic с неразрешимым span; foreign same-index ID не обязан обнаруживаться;
 - `CompileSession` владеет `SourceMap`, `CompileConfig` и начиная с этапа 2 `SymbolStorage`. Diagnostics возвращаются явно через `Result` при fail-fast либо через явный sink после появления recovery;
 - `compile` получает явный `RenderConfig` для sample-rate-dependent проверок и сохраняет его в compiled program. Source-free `RenderConfigError` отличается от source `Diagnostic`; protective max-seconds применяется только перед render;
@@ -1624,7 +1655,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 2 — Типы, наивный интерпретатор и Beep WAV
 
-**Статус:** завершён 2026-11-20 по спецификации 0.3.0. Resolver/type checker, Typed AST/lifts, `sine`, наивный interpreter, streaming WAV и `run` реализованы; regression-исправления и приёмка выполнены. Контракт, исторические результаты подготовки и итоговый отчёт: `docs/development/stages/stage-02-types-interpreter-wav.md`. Этап 3 не начат.
+**Статус:** завершён 2026-11-20 по спецификации 0.3.0. Resolver/type checker, Typed AST/lifts, `sine`, наивный interpreter, streaming WAV и `run` реализованы; regression-исправления и приёмка выполнены. Контракт, исторические результаты подготовки и итоговый отчёт: `docs/development/stages/stage-02-types-interpreter-wav.md`. На момент завершения этапа 2 этап 3 ещё не был начат.
 
 **Цель:** первая законченная вертикаль `source → sound`.
 
@@ -1666,11 +1697,14 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 3 — IR, bytecode и блочная VM
 
-**Цель:** заменить production interpreter блочной VM без изменения языка и WAV-контракта.
+**Статус:** завершён 2026-11-21 по спецификации 0.4.0. Приняты ADR 0004/0005; lowering, verifiers, codegen, block VM и renderer migration реализованы, naive interpreter удалён после parity. Все 180 integration tests, allocation harness и общий набор проходят; benchmark baseline зафиксирован. Контракт, измерения и DoD: `docs/development/stages/stage-03-ir-bytecode-vm.md`. Этап 4 не начат.
+
+**Цель:** заменить production interpreter блочной VM без изменения языка, runtime diagnostics и WAV-контракта.
 
 **Production:**
 
 - Typed AST → signal IR с валидным `NodeOrigin` у каждого исходного узла;
+- canonical topological `NodeId`, sharing resolved bindings и evaluation roots для всех top-level bindings в declaration order, включая unused;
 - graph и bytecode verifiers, включая проверку origin;
 - capability/resource classification фактически добавленных IR ops в продолжение builtin descriptors;
 - scalar/audio registers;
@@ -1696,10 +1730,11 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 - все Beep fixtures проходят без изменения expected;
 - VM совпадает с reference на согласованном corpus;
-- block sizes `1`, `3`, `64`, `128`, `256` и случайные partitions дают эквивалентный результат;
+- block sizes `1`, `3`, `64`, `128`, `256` и случайные partitions дают эквивалентные samples и одинаковые первые runtime diagnostics с code/span/sample index;
 - reset повторяет исходный рендер;
-- verifier отклоняет повреждённые программы до dispatch;
-- каждый исходный IR node имеет валидный origin; удаление debug info не меняет звук;
+- verifier отклоняет повреждённые программы до dispatch без panic; экстремальные runtime sizes возвращают typed error до allocation;
+- unused bindings вычисляются через roots в прежнем declaration order, их runtime errors и diagnostics не исчезают;
+- каждый исходный IR node имеет валидный origin; `SetOutput` сохраняет полный out value span, а удаление debug info не меняет звук;
 - каждый добавленный IR op имеет capability/resource classification в объёме текущих targets, без пустого универсального future enum;
 - steady-state `render_into` не выделяет память;
 - Beep CLI и diagnostics не изменились;
@@ -2075,12 +2110,22 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 1. Этапы 0, 1 и 1A завершены; сохранить их исторические отчёты и исходные проверки. Итоговая приёмка 1A находится в `docs/development/stages/stage-01a-ecosystem-foundation.md`.
 2. Область `SourceId` уточнена в спецификации 0.2.1 и ADR 0012: IDs остаются детерминированными map-local индексами и используются только с исходной картой; глобальный provenance не добавляется.
 3. Этап 2 завершён 2026-11-20 по спецификации 0.3.0: resolver/type checker, Typed AST/lifts, наивный `sine` interpreter, streaming WAV и CLI реализованы; 121 integration test, общий набор и ручная Beep/atomic/determinism приёмка проходят. Исторический отчёт подготовки и финальная приёмка находятся в `docs/development/stages/stage-02-types-interpreter-wav.md`.
-4. Этап 3 не начат. IR/VM с `NodeOrigin`, capability/resource classification и versioned persisted format, если persistence появится, начинаются только по отдельной явной задаче.
-5. Во время VM-этапа основную часть агентской работы направить на reference interpreter, block partitions, reset, origins, verifiers, determinism и differential generation.
+4. Этап 3 завершён 2026-11-21 по ADR 0004/0005, включая benchmark baseline с полной конфигурацией §10.2 в stage document. Этап 4 начинается только по отдельной явной задаче. Persistence не создаётся; если появится отдельной задачей, format/VM version обязательны.
+5. Reference, block partitions, reset, origins, verifiers, determinism и differential generation уже проверены. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
 6. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
 7. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.4.0 — 2026-11-20
+
+- Изменение: начат этап 3 и детализированы canonical typed DAG, evaluation roots для всех top-level bindings, sharing/NodeOrigin, IR verification, capability/resource models, typed register bytecode, state/output protocol, optional debug origins, block VM execution/reset/errors и migration renderer. Добавлены ADR 0004 и 0005, stage/task documents.
+- Причина: устранить неоднозначности перед ручной реализацией IR/bytecode/VM и подготовить независимые contract/differential/property tests. Явно сохранено текущее вычисление unused bindings и их runtime errors.
+- Затронутые контракты: §0, §5.6–§5.8, §7.4–§7.6, §9 (этап 3), §10–§14; internal Rust compile outcome различает source diagnostics и verifier invariants.
+- Совместимость: синтаксис, типы, существующие diagnostic codes/spans/sample indices, CLI flags/exit codes, PCM16 WAV и вычисление всех top-level bindings не меняются. Internal Rust API расширяется IR/bytecode/VM representations без stable ABI или persistence. До ручной реализации временные заглушки и красные tests не являются завершением этапа.
+- Новые/изменённые тесты: IR/bytecode verifier corruption, explicit lowering/codegen layout, VM scalar/audio/state/reset, block partitions, debug stripping, unused roots, differential fixed-seed corpus, properties и compatibility. Точные фактические counts и результаты фиксируются в stage/task documents после запуска.
+- Review-исправления 2026-11-21: sample-major dispatch и structured `NonFiniteOutput` сохраняют первый diagnostic при любых block partitions; structural verifier и VM creation исключают count-driven capacity panic; `SetOutput` получает отдельный полный out value origin. Добавлены точные runtime-order/size/origin regressions. Это восстановление уже заявленной совместимости, а не syntax/diagnostic contract break.
+- Связанные ADR: `0004`, `0005`; сохраняются `0001`, `0002`, `0003`, `0006`, `0009`, `0011`, `0012`.
 
 ### 0.3.0 — 2026-11-16
 

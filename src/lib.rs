@@ -1,7 +1,9 @@
+#![forbid(unsafe_code)]
+
 //! Public library facade for linen.
 //!
 //! The crate provides structured diagnostics, the source-aware syntax API and
-//! the unstable stage 2 representations used by the current implementation.
+//! the unstable stage 2 and stage 3 representations used by the implementation.
 //!
 //! ```
 //! use linen::{Diagnostic, DiagnosticLabel, ErrorCode, SourceMap, SourceSpan};
@@ -21,16 +23,19 @@
 //! ```
 
 pub mod api;
+pub mod bytecode;
 pub mod diagnostic;
 pub mod dsp;
+pub mod ir;
 pub mod render;
 pub mod sema;
 pub mod source;
 pub mod syntax;
+pub mod vm;
 
 pub use api::{
-    CheckOutcome, CompileConfig, CompileOutcome, CompileSession, SessionError, check,
-    check_with_config, compile, compile_with_config,
+    CheckOutcome, CompileConfig, CompileError, CompileOutcome, CompileSession, SessionError, check,
+    check_with_config, compile, compile_with_config, create_vm,
 };
 pub use diagnostic::{
     Diagnostic, DiagnosticLabel, DiagnosticRenderError, ErrorCode, Severity, render_diagnostic,

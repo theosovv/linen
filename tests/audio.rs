@@ -1,7 +1,7 @@
 use linen::dsp::Sine;
-use linen::render::NaiveInterpreter;
 use linen::{
-    CompiledProgram, ErrorCode, RenderError, SourceId, SourceMap, SourceSpan, compile, render,
+    CompiledProgram, ErrorCode, RenderError, SourceId, SourceMap, SourceSpan, compile, create_vm,
+    render,
 };
 
 fn compile_program(source: &str) -> CompiledProgram {
@@ -12,14 +12,15 @@ fn compile_program(source: &str) -> CompiledProgram {
 }
 
 fn collect(program: &CompiledProgram, count: usize) -> Vec<f32> {
-    let mut interpreter = NaiveInterpreter::new(&program.typed);
-    (0..count)
-        .map(|index| {
-            interpreter
-                .next_sample(index as u64, program.config.sample_rate)
-                .expect("the analytic input should produce finite samples")
-        })
-        .collect()
+    let mut vm = create_vm(program).expect("compiled bytecode must create a VM");
+    let mut samples = vec![0.0; count];
+
+    for block in samples.chunks_mut(program.config.block_size) {
+        vm.render_into(block)
+            .expect("the analytic input should produce finite samples");
+    }
+
+    samples
 }
 
 fn assert_close(actual: f32, expected: f32, sample_index: usize) {
@@ -65,21 +66,17 @@ fn spec_4_8_zero_negative_and_above_nyquist_frequencies_follow_phase_formula() {
 #[test]
 fn spec_4_8_reset_repeats_the_same_samples() {
     let program = compile_program("let out = sine(440) * 0.1; render 2ms;");
-    let mut interpreter = NaiveInterpreter::new(&program.typed);
-    let first: Vec<f32> = (0..96)
-        .map(|index| {
-            interpreter
-                .next_sample(index, 48_000)
-                .expect("the first render should be finite")
-        })
-        .collect();
+    let mut vm = create_vm(&program).expect("compiled bytecode must create a VM");
+    let mut first = vec![0.0; 96];
+    vm.render_into(&mut first)
+        .expect("the first render should be finite");
 
-    interpreter.reset();
-    for (index, expected) in first.into_iter().enumerate() {
-        let actual = interpreter
-            .next_sample(index as u64, 48_000)
-            .expect("the reset render should be finite");
-        assert_close(actual, expected, index);
+    vm.reset();
+    let mut second = vec![0.0; 96];
+    vm.render_into(&mut second)
+        .expect("the reset render should be finite");
+    for (index, (actual, expected)) in second.iter().zip(&first).enumerate() {
+        assert_close(*actual, *expected, index);
     }
 }
 

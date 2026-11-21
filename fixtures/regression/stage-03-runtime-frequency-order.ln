@@ -1,0 +1,4 @@
+let early = sine(1 / (sine(480) - 1));
+let late = sine(sine(0) / 0);
+let out = sine(440);
+render 2ms;
