@@ -3,6 +3,7 @@ mod reference;
 
 use linen::sema::{
     BindingId, BuiltinId, Type, TypedBinding, TypedExpr, TypedExprKind, TypedProgram, TypedRender,
+    TypedTopDecl,
 };
 use linen::syntax::{BinaryOp, DurationUnit, Identifier};
 use linen::{SourceMap, SourceSpan, compile};
@@ -23,7 +24,7 @@ fn program_with_frequency(frequency: f64) -> TypedProgram {
         span,
     };
     let oscillator = TypedExpr {
-        kind: TypedExprKind::Call {
+        kind: TypedExprKind::BuiltinCall {
             builtin: BuiltinId::SINE,
             callee: Identifier::new("sine", span),
             arguments: vec![lift(number(frequency))],
@@ -43,13 +44,13 @@ fn program_with_frequency(frequency: f64) -> TypedProgram {
     let id = BindingId::new(0);
 
     TypedProgram {
-        bindings: vec![TypedBinding {
+        declarations: vec![TypedTopDecl::Binding(TypedBinding {
             id,
             name: Identifier::new("out", span),
             annotation: None,
             value: output,
             span,
-        }],
+        })],
         output: id,
         render: TypedRender {
             duration: linen::syntax::DurationLiteral {

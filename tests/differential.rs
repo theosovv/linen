@@ -178,3 +178,11 @@ fn adr_0006_reference_and_vm_reset_repeat_the_same_sequence() {
         assert_eq!(actual.to_bits(), expected.to_bits(), "sample {index}");
     }
 }
+
+#[test]
+fn spec_7_5_generated_function_block_pipeline_corpus_matches_reference() {
+    for seed in 0..12 {
+        let source = generator::function_program(seed);
+        compare_at_block_size(&source, 1 + seed as usize % 17);
+    }
+}

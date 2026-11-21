@@ -2,8 +2,8 @@ use crate::{
     Diagnostic, DiagnosticLabel, ErrorCode,
     source::{SourceId, SourceSpan},
     syntax::{
-        BinaryOp, DurationLiteral, Expr, ExprKind, Identifier, LetDecl, RenderDecl, TokenKind,
-        TypeAnnotation, TypeName, UnaryOp,
+        BinaryOp, DurationLiteral, Expr, ExprKind, FunctionDecl, Identifier, LetDecl, Parameter,
+        RenderDecl, TokenKind, TopDecl, TypeAnnotation, TypeName, UnaryOp,
     },
 };
 
@@ -79,10 +79,10 @@ impl<'tokens> Parser<'tokens> {
             return Err(self.unexpected_token(Some(token), Some("tokens from the expected source")));
         }
 
-        let mut bindings = Vec::new();
+        let mut declarations = Vec::new();
 
         while matches!(self.peek().map(|token| &token.kind), Some(TokenKind::Let)) {
-            bindings.push(self.parse_let_decl()?);
+            declarations.push(self.parse_top_decl()?);
         }
 
         if self.is_at_end() {
@@ -126,7 +126,10 @@ impl<'tokens> Parser<'tokens> {
 
         let mut first_out: Option<SourceSpan> = None;
 
-        for binding in &bindings {
+        for declaration in &declarations {
+            let TopDecl::Let(binding) = declaration else {
+                continue;
+            };
             if binding.name.name != "out" {
                 continue;
             }
@@ -157,14 +160,14 @@ impl<'tokens> Parser<'tokens> {
             ));
         }
 
-        let start_span = bindings
+        let start_span = declarations
             .first()
-            .map_or(render_keyword_span, |binding| binding.span);
+            .map_or(render_keyword_span, TopDecl::span);
 
         let span = self.span_between(start_span, render.span)?;
 
         Ok(Program {
-            bindings,
+            declarations,
             render,
             span,
         })
@@ -288,7 +291,71 @@ impl<'tokens> Parser<'tokens> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {
-        self.parse_additive()
+        let start_span = self.span_here();
+        let expression = self.parse_additive()?;
+
+        if matches!(
+            self.peek().map(|token| &token.kind),
+            Some(TokenKind::PipeGreater)
+        ) {
+            return self.parse_pipeline_suffix(expression, start_span);
+        }
+        Ok(expression)
+    }
+
+    fn parse_pipeline_suffix(
+        &mut self,
+        mut left: Expr,
+        start_span: SourceSpan,
+    ) -> Result<Expr, Diagnostic> {
+        while matches!(
+            self.peek().map(|token| &token.kind),
+            Some(TokenKind::PipeGreater)
+        ) {
+            self.expect(TokenKind::PipeGreater)?;
+
+            let callee = self.expect_identifier()?;
+            let left_span = left.span;
+            let mut arguments = vec![left];
+            let end_span = if matches!(
+                self.peek().map(|token| &token.kind),
+                Some(TokenKind::LeftParen)
+            ) {
+                let opening = self.expect(TokenKind::LeftParen)?;
+
+                if !matches!(
+                    self.peek().map(|token| &token.kind),
+                    Some(TokenKind::RightParen)
+                ) {
+                    loop {
+                        arguments.push(self.parse_nested_expression(opening.span)?);
+
+                        if matches!(self.peek().map(|token| &token.kind), Some(TokenKind::Comma)) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                self.expect(TokenKind::RightParen)?.span
+            } else {
+                callee.span
+            };
+
+            let span = self.span_between(left_span, end_span)?;
+
+            left = self.make_expr(ExprKind::Call { callee, arguments }, span, start_span)?;
+
+            if matches!(
+                self.peek().map(|token| &token.kind),
+                Some(TokenKind::LeftParen)
+            ) {
+                return Err(self.unexpected_token(self.peek(), Some("only one call suffix")));
+            }
+        }
+
+        Ok(left)
     }
 
     fn parse_additive(&mut self) -> Result<Expr, Diagnostic> {
@@ -435,6 +502,128 @@ impl<'tokens> Parser<'tokens> {
         Ok(duration)
     }
 
+    fn parse_top_decl(&mut self) -> Result<TopDecl, Diagnostic> {
+        if self.function_decl_ahead() {
+            return self.parse_function_decl().map(TopDecl::Function);
+        }
+
+        self.parse_let_decl().map(TopDecl::Let)
+    }
+
+    fn function_decl_ahead(&self) -> bool {
+        if !matches!(
+            self.tokens.get(self.current).map(|token| &token.kind),
+            Some(TokenKind::Let)
+        ) || !matches!(
+            self.tokens.get(self.current + 1).map(|token| &token.kind),
+            Some(TokenKind::Identifier(_))
+        ) || !matches!(
+            self.tokens.get(self.current + 2).map(|token| &token.kind),
+            Some(TokenKind::Equal)
+        ) || !matches!(
+            self.tokens.get(self.current + 3).map(|token| &token.kind),
+            Some(TokenKind::LeftParen)
+        ) {
+            return false;
+        }
+
+        let mut cursor = self.current + 4;
+        loop {
+            match self.tokens.get(cursor).map(|token| &token.kind) {
+                Some(TokenKind::RightParen) => break,
+                Some(TokenKind::Semicolon | TokenKind::Eof) | None => return false,
+                Some(_) => cursor += 1,
+            }
+        }
+
+        matches!(
+            self.tokens.get(cursor + 1).map(|token| &token.kind),
+            Some(TokenKind::Colon | TokenKind::Float | TokenKind::Sig | TokenKind::FatArrow)
+        ) && matches!(
+            self.tokens.get(cursor + 2).map(|token| &token.kind),
+            Some(TokenKind::Float | TokenKind::Sig)
+        ) && matches!(
+            self.tokens.get(cursor + 3).map(|token| &token.kind),
+            Some(TokenKind::FatArrow)
+        )
+    }
+
+    fn parse_function_decl(&mut self) -> Result<FunctionDecl, Diagnostic> {
+        self.count_declaration()?;
+
+        let token = self.expect(TokenKind::Let)?;
+        let name = self.expect_identifier()?;
+
+        self.expect(TokenKind::Equal)?;
+        self.expect(TokenKind::LeftParen)?;
+
+        let parameters = self.parse_parameters()?;
+
+        self.expect(TokenKind::RightParen)?;
+
+        let result = self.parse_annotation()?.ok_or_else(|| {
+            self.unexpected_token(self.peek(), Some(" return type annotation after `)`"))
+        })?;
+
+        self.expect(TokenKind::FatArrow)?;
+
+        let body = self.parse_expr()?;
+        let end_function_decl = self.expect(TokenKind::Semicolon)?;
+        let span = self.span_between(token.span, end_function_decl.span)?;
+
+        Ok(FunctionDecl {
+            name,
+            parameters,
+            result,
+            body,
+            span,
+        })
+    }
+
+    fn parse_parameters(&mut self) -> Result<Vec<Parameter>, Diagnostic> {
+        let mut parameters = Vec::new();
+
+        if !matches!(
+            self.peek().map(|token| &token.kind),
+            Some(TokenKind::Identifier(_))
+        ) {
+            return Ok(parameters);
+        }
+
+        loop {
+            let identifier = self.expect_identifier()?;
+
+            let type_annotation = self.parse_annotation()?.ok_or_else(|| {
+                self.unexpected_token(
+                    self.peek(),
+                    Some("`: Float` or `: Sig` after the parameter name"),
+                )
+            })?;
+            let span = self.span_between(identifier.span, type_annotation.span)?;
+
+            parameters.push(Parameter {
+                name: identifier,
+                annotation: type_annotation,
+                span,
+            });
+
+            if !matches!(self.peek().map(|token| &token.kind), Some(TokenKind::Comma)) {
+                break;
+            }
+
+            self.advance();
+
+            if !matches!(
+                self.peek().map(|token| &token.kind),
+                Some(TokenKind::Identifier(_))
+            ) {
+                return Err(self.unexpected_token(self.peek(), Some("a parameter after `,`")));
+            }
+        }
+
+        Ok(parameters)
+    }
+
     fn parse_let_decl(&mut self) -> Result<LetDecl, Diagnostic> {
         self.count_declaration()?;
 
@@ -533,8 +722,58 @@ impl<'tokens> Parser<'tokens> {
                 self.make_expr(ExprKind::Identifier(identifier), span, span)
             }
             TokenKind::LeftParen => self.parse_group(),
+            TokenKind::LeftBrace => self.parse_block_expr(),
             _ => Err(self.unexpected_token(Some(token), Some("an expression"))),
         }
+    }
+
+    fn parse_block_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let start_block = self.expect(TokenKind::LeftBrace)?;
+
+        if self.expression_depth >= self.config.max_depth {
+            return Err(Diagnostic::error(
+                ErrorCode::ExpressionDepthLimit,
+                "expression nesting limit exceeded",
+                DiagnosticLabel::new(
+                    start_block.span,
+                    format!(
+                        "this block expression exceeds the configured maximum depth of {}",
+                        self.config.max_depth
+                    ),
+                ),
+            ));
+        }
+
+        self.expression_depth += 1;
+
+        let parsed = (|| {
+            let mut bindings = Vec::new();
+
+            while matches!(self.peek().map(|token| &token.kind), Some(TokenKind::Let)) {
+                bindings.push(self.parse_let_decl()?);
+            }
+
+            let result = self.parse_expr()?;
+            Ok((bindings, result))
+        })();
+
+        self.expression_depth -= 1;
+
+        let (bindings, result) = parsed?;
+
+        let end_block = self.expect(TokenKind::RightBrace)?;
+        let span = self.span_between(start_block.span, end_block.span)?;
+
+        let block_expr = self.make_expr(
+            ExprKind::Block {
+                bindings,
+                result: Box::new(result),
+            },
+            span,
+            start_block.span,
+        )?;
+
+        Ok(block_expr)
     }
 
     fn parse_group(&mut self) -> Result<Expr, Diagnostic> {

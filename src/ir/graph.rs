@@ -1,6 +1,6 @@
 use crate::{
     SourceSpan,
-    sema::{ResourceModel, RuntimeCapability},
+    sema::{FunctionId, ResourceModel, RuntimeCapability},
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -23,8 +23,24 @@ pub enum ValueType {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CallOrigin {
+    pub function: FunctionId,
+    pub call_span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NodeOrigin {
     pub primary: SourceSpan,
+    pub inlined_from: Vec<CallOrigin>,
+}
+
+impl NodeOrigin {
+    pub const fn new(primary: SourceSpan) -> Self {
+        Self {
+            primary,
+            inlined_from: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

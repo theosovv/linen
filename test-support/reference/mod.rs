@@ -1,4 +1,6 @@
-use linen::sema::{BindingId, BuiltinId, Type, TypedExpr, TypedExprKind, TypedProgram};
+use linen::sema::{
+    BindingId, BuiltinId, Type, TypedBinding, TypedExpr, TypedExprKind, TypedProgram,
+};
 use linen::syntax::{BinaryOp, UnaryOp};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +19,7 @@ pub struct ReferenceInterpreter {
     bindings: Vec<ReferenceBinding>,
     output: BindingId,
     phases: Vec<f64>,
+    slot_count: usize,
 }
 
 struct ReferenceBinding {
@@ -46,6 +49,10 @@ enum ReferenceExprKind {
         right: Box<ReferenceExpr>,
     },
     Group(Box<ReferenceExpr>),
+    Block {
+        bindings: Vec<ReferenceBinding>,
+        result: Box<ReferenceExpr>,
+    },
     Lift(Box<ReferenceExpr>),
 }
 
@@ -55,21 +62,40 @@ enum ReferenceValue {
     Signal(f32),
 }
 
+struct ReferenceBuilder {
+    phases: Vec<f64>,
+    slot_count: usize,
+}
+
+impl ReferenceBuilder {
+    fn register(&mut self, id: BindingId) {
+        self.slot_count = self.slot_count.max(id.index() + 1);
+    }
+}
+
 impl ReferenceInterpreter {
     pub fn new(program: &TypedProgram) -> Self {
-        let mut phases = Vec::new();
+        let mut builder = ReferenceBuilder {
+            phases: Vec::new(),
+            slot_count: 0,
+        };
         let bindings = program
-            .bindings
-            .iter()
-            .map(|binding| ReferenceBinding {
-                id: binding.id,
-                value: lower_expr(&binding.value, &mut phases),
+            .bindings()
+            .into_iter()
+            .map(|binding| {
+                builder.register(binding.id);
+                ReferenceBinding {
+                    id: binding.id,
+                    value: lower_expr(&binding.value, program, &mut builder),
+                }
             })
             .collect();
+        builder.register(program.output);
         Self {
             bindings,
             output: program.output,
-            phases,
+            phases: builder.phases,
+            slot_count: builder.slot_count,
         }
     }
 
@@ -82,19 +108,13 @@ impl ReferenceInterpreter {
         sample_index: u64,
         sample_rate: u32,
     ) -> Result<f32, ReferenceError> {
-        let slot_count = self
-            .bindings
-            .iter()
-            .map(|binding| binding.id.index() + 1)
-            .max()
-            .unwrap_or(0);
-        let mut values = vec![None; slot_count];
+        let mut values = vec![None; self.slot_count];
 
         for index in 0..self.bindings.len() {
             let id = self.bindings[index].id;
             let value = eval(
                 &self.bindings[index].value,
-                &values,
+                &mut values,
                 &mut self.phases,
                 sample_index,
                 sample_rate,
@@ -117,25 +137,73 @@ impl ReferenceInterpreter {
     }
 }
 
-fn lower_expr(expr: &TypedExpr, phases: &mut Vec<f64>) -> ReferenceExpr {
+fn lower_bindings(
+    bindings: &[TypedBinding],
+    program: &TypedProgram,
+    builder: &mut ReferenceBuilder,
+) -> Vec<ReferenceBinding> {
+    bindings
+        .iter()
+        .map(|binding| {
+            builder.register(binding.id);
+            ReferenceBinding {
+                id: binding.id,
+                value: lower_expr(&binding.value, program, builder),
+            }
+        })
+        .collect()
+}
+
+fn lower_expr(
+    expr: &TypedExpr,
+    program: &TypedProgram,
+    builder: &mut ReferenceBuilder,
+) -> ReferenceExpr {
     let kind = match &expr.kind {
         TypedExprKind::Number(value) => ReferenceExprKind::Number(*value),
-        TypedExprKind::Identifier { id, .. } => ReferenceExprKind::Identifier(*id),
-        TypedExprKind::Call {
+        TypedExprKind::Identifier { id, .. } => {
+            builder.register(*id);
+            ReferenceExprKind::Identifier(*id)
+        }
+        TypedExprKind::BuiltinCall {
             builtin, arguments, ..
         } => {
             assert_eq!(*builtin, BuiltinId::SINE, "unsupported reference builtin");
             assert_eq!(arguments.len(), 1, "sine must have one checked argument");
-            let state = phases.len();
-            phases.push(0.0);
-            ReferenceExprKind::Sine {
-                frequency: Box::new(lower_expr(&arguments[0], phases)),
-                state,
+            let frequency = Box::new(lower_expr(&arguments[0], program, builder));
+            let state = builder.phases.len();
+            builder.phases.push(0.0);
+            ReferenceExprKind::Sine { frequency, state }
+        }
+        TypedExprKind::FunctionCall {
+            function,
+            arguments,
+            ..
+        } => {
+            let definition = program
+                .functions()
+                .find(|candidate| candidate.id == *function)
+                .expect("a resolved function must have a typed definition");
+            assert_eq!(
+                arguments.len(),
+                definition.parameters.len(),
+                "function arity must be checked before reference construction"
+            );
+            let mut bindings = Vec::with_capacity(arguments.len());
+            for (argument, parameter) in arguments.iter().zip(&definition.parameters) {
+                builder.register(parameter.id);
+                let value = lower_expr(argument, program, builder);
+                bindings.push(ReferenceBinding {
+                    id: parameter.id,
+                    value,
+                });
             }
+            let result = Box::new(lower_expr(&definition.body, program, builder));
+            ReferenceExprKind::Block { bindings, result }
         }
         TypedExprKind::Unary { operator, operand } => ReferenceExprKind::Unary {
             operator: *operator,
-            operand: Box::new(lower_expr(operand, phases)),
+            operand: Box::new(lower_expr(operand, program, builder)),
         },
         TypedExprKind::Binary {
             operator,
@@ -143,14 +211,18 @@ fn lower_expr(expr: &TypedExpr, phases: &mut Vec<f64>) -> ReferenceExpr {
             right,
         } => ReferenceExprKind::Binary {
             operator: *operator,
-            left: Box::new(lower_expr(left, phases)),
-            right: Box::new(lower_expr(right, phases)),
+            left: Box::new(lower_expr(left, program, builder)),
+            right: Box::new(lower_expr(right, program, builder)),
         },
         TypedExprKind::Group(inner) => {
-            ReferenceExprKind::Group(Box::new(lower_expr(inner, phases)))
+            ReferenceExprKind::Group(Box::new(lower_expr(inner, program, builder)))
         }
+        TypedExprKind::Block { bindings, result } => ReferenceExprKind::Block {
+            bindings: lower_bindings(bindings, program, builder),
+            result: Box::new(lower_expr(result, program, builder)),
+        },
         TypedExprKind::LiftFloatToSig(inner) => {
-            ReferenceExprKind::Lift(Box::new(lower_expr(inner, phases)))
+            ReferenceExprKind::Lift(Box::new(lower_expr(inner, program, builder)))
         }
     };
     ReferenceExpr { kind, ty: expr.ty }
@@ -158,7 +230,7 @@ fn lower_expr(expr: &TypedExpr, phases: &mut Vec<f64>) -> ReferenceExpr {
 
 fn eval(
     expr: &ReferenceExpr,
-    values: &[Option<ReferenceValue>],
+    values: &mut [Option<ReferenceValue>],
     phases: &mut [f64],
     sample_index: u64,
     sample_rate: u32,
@@ -228,6 +300,19 @@ fn eval(
             }
         }
         ReferenceExprKind::Group(inner) => eval(inner, values, phases, sample_index, sample_rate),
+        ReferenceExprKind::Block { bindings, result } => {
+            let mut saved = Vec::with_capacity(bindings.len());
+            for binding in bindings {
+                let value = eval(&binding.value, values, phases, sample_index, sample_rate)?;
+                saved.push((binding.id, values[binding.id.index()]));
+                values[binding.id.index()] = Some(value);
+            }
+            let result = eval(result, values, phases, sample_index, sample_rate);
+            for (id, value) in saved.into_iter().rev() {
+                values[id.index()] = value;
+            }
+            result
+        }
         ReferenceExprKind::Lift(inner) => {
             let value = float_value(eval(inner, values, phases, sample_index, sample_rate)?);
             Ok(ReferenceValue::Signal(value as f32))

@@ -31,6 +31,7 @@ ADR фиксирует нетривиальное архитектурное р�
 - [0004 — типизированный сигнальный IR](0004-typed-graph-ir.md).
 - [0005 — регистровый bytecode и блочная VM](0005-register-block-vm.md).
 - [0006 — детерминированное состояние sine](0006-deterministic-oscillator-state.md).
+- [0007 — инстанцирование функций, sharing и call origins](0007-function-instantiation-and-sharing.md).
 - [0009 — независимые test oracles и числовые допуски](0009-test-oracles-and-numeric-tolerances.md).
 - [0011 — лимиты parser и fail-fast diagnostics этапа 1](0011-stage-1-parser-limits-and-diagnostics.md).
 - [0012 — SourceMap, SourceSpan и явный CompileSession](0012-source-map-and-compile-session.md).

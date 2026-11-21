@@ -1,0 +1,5 @@
+let oscillator = (frequency: Sig): Sig => sine(frequency);
+let low = oscillator(240);
+let high = oscillator(480);
+let out = low + high;
+render 1ms;

@@ -5,7 +5,7 @@ use crate::{
     bytecode::{self, BytecodeVerifyError},
     ir::{self, IrVerifyError},
     render::{CompiledProgram, RenderConfig, RenderConfigError},
-    sema::{SymbolStorage, check_program},
+    sema::{FunctionLimits, SymbolStorage, check_program},
     source::{SourceId, SourceMap},
     syntax::{ParserConfig, Program, parse_with_config},
     vm::{Vm, VmConfig, VmCreateError},
@@ -14,6 +14,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CompileConfig {
     pub parser: ParserConfig,
+    pub functions: FunctionLimits,
 }
 
 /// Owns the source map used to produce the contained result.
@@ -135,6 +136,7 @@ impl CompileSession {
                 &program,
                 &mut self.symbols,
                 RenderConfig::default().sample_rate,
+                self.config.functions,
             )?;
             Ok(program)
         });
@@ -157,22 +159,22 @@ impl CompileSession {
         let result = parsed
             .map_err(CompileError::Diagnostic)
             .and_then(|program| {
-                let typed = check_program(&program, &mut self.symbols, render_config.sample_rate)?;
+                let typed = check_program(
+                    &program,
+                    &mut self.symbols,
+                    render_config.sample_rate,
+                    self.config.functions,
+                )?;
                 let output_origin = typed
-                    .bindings
-                    .iter()
+                    .bindings()
+                    .into_iter()
                     .find(|binding| binding.id == typed.output)
                     .expect("typed output must refer to a binding")
                     .value
                     .span;
                 let graph = ir::lower(&typed);
                 ir::verify(&graph, &self.sources)?;
-                let bytecode = bytecode::codegen(
-                    &graph,
-                    ir::NodeOrigin {
-                        primary: output_origin,
-                    },
-                );
+                let bytecode = bytecode::codegen(&graph, ir::NodeOrigin::new(output_origin));
                 bytecode::verify(&bytecode)?;
                 bytecode::verify_origins(&bytecode, &self.sources)?;
 

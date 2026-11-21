@@ -4,7 +4,7 @@
 
 **linen** — исследовательский некоммерческий проект статически типизированного функционального языка для описания аудиосигналов. Цель разработки — собственные компилятор, блочная виртуальная машина, DSP-узлы и инструменты исследования звука на Rust.
 
-> Этапы 0, 1, корректирующий этап 1A, 2 и 3 завершены. По `SPEC.md` 0.4.0 работает production path `source → Typed AST → IR → bytecode → block VM → WAV`; naive interpreter удалён после parity. Все 180 integration tests и allocation-counting harness проходят. Benchmark baseline зафиксирован в stage document; этап 4 не начат.
+> Этапы 0, 1, корректирующий этап 1A, 2, 3 и 4 завершены. По `SPEC.md` 0.5.0 работает production path `source → Typed AST → IR → bytecode → block VM → WAV`, включая пользовательские функции, lexical scopes, блоки и pipeline. Все 208 integration tests, differential/properties, allocation harness и реальные CLI-сценарии проходят. Этап 5 не начат.
 
 ## Что уже работает
 
@@ -12,7 +12,9 @@
 - `SourceId`, `SourceFile`, `SourceMap` и `SourceSpan` с полуинтервальными byte offsets и Source identity через tokens, AST, Typed AST и diagnostics.
 - Предвычисленный line index с Unicode scalar columns, LF/CRLF, lone CR, tab и EOF boundaries.
 - Lexer, AST и recursive descent parser для Beep-синтаксиса, включая лимиты глубины и числа узлов и обработку смешанных synthetic token streams.
-- Name resolution в плоском top-level scope, детерминированные `BindingId`/`BuiltinId`, session-owned `SymbolStorage` и статический descriptor `sine`.
+- Name resolution с lexical scopes, детерминированные `BindingId`/`FunctionId`/`BuiltinId`, session-owned `SymbolStorage` и статический descriptor `sine`.
+- Пользовательские функции с обязательными сигнатурами, local inference, nested blocks/shadowing и parser desugaring pipeline.
+- Function graph-construction inlining с eager args/locals, evaluation roots, sharing, fresh per-call state, per-call Float checks и inner-to-outer call origins.
 - Типы `Float`/`Sig`, checked compile-time arithmetic, явные `LiftFloatToSig`, аннотации и проверка `out`/`render`.
 - Typed IR с evaluation roots/sharing/origins, graph verifier, typed register bytecode, bytecode verifier и capability/resource metadata.
 - Блочная VM с preallocated scalar/audio registers, independent sine state, variable blocks, reset и structured runtime errors. Steady-state `render_into` и `reset` проверены allocation counter: 0 heap allocations.
@@ -23,7 +25,7 @@
 - Atomic publish через temporary file в output directory; существующий destination не перезаписывается без `--force`.
 - Integration/differential/property/compatibility tests, независимый reference interpreter, doctest, rustfmt, clippy и GitHub Actions CI.
 
-`inspect`, пользовательские функции и блоки, stereo, фильтры и пользовательские multi-file projects ещё не реализованы. Несколько источников поддерживаются на уровне synthetic in-memory compiler tests; модульная и пакетная функциональность отсутствует.
+`inspect`, stereo, фильтры и пользовательские multi-file projects ещё не реализованы. Несколько источников поддерживаются на уровне synthetic in-memory compiler tests; модульная и пакетная функциональность отсутствует.
 
 ## Требования
 
@@ -166,7 +168,7 @@ linen/
     └── workflows/ci.yml
 ```
 
-Production-заглушек этапа 3 не осталось. Независимый reference находится только в `test-support` и не используется production VM или DSP как общий oracle. Test-only allocation counter изолирован в `tests/allocations.rs`; production library/binary сохраняют `forbid(unsafe_code)`.
+Production-заглушек этапа 4 не осталось. Общий corpus содержит 208 integration tests: все проходят, 0 failed, 0 ignored. Независимый reference находится только в `test-support` и не использует production VM или DSP как общий oracle. Test-only allocation counter изолирован в `tests/allocations.rs` и подтверждает 0 heap allocations для steady-state `render_into`/`reset` на stage-3 и stage-4 graphs; production library/binary сохраняют `forbid(unsafe_code)`.
 
 ## Разработка по спецификации
 
@@ -180,7 +182,8 @@ Production-заглушек этапа 3 не осталось. Независи
 - [`docs/development/stages/stage-01a-ecosystem-foundation.md`](docs/development/stages/stage-01a-ecosystem-foundation.md) — миграция этапов 0–1 и приёмка 1A.
 - [`docs/development/stages/stage-02-types-interpreter-wav.md`](docs/development/stages/stage-02-types-interpreter-wav.md) — контракт, DoD и итоговая приёмка этапа 2.
 - [`docs/development/stages/stage-03-ir-bytecode-vm.md`](docs/development/stages/stage-03-ir-bytecode-vm.md) — контракт, подготовительные результаты и DoD этапа 3.
-- [`docs/adr/`](docs/adr/) — архитектурные решения, включая ADR 0004/0005 для IR и block VM.
+- [`docs/development/stages/stage-04-functions-blocks-pipeline.md`](docs/development/stages/stage-04-functions-blocks-pipeline.md) — контракт этапа 4, результаты подготовки и полный DoD для ручной реализации.
+- [`docs/adr/`](docs/adr/) — архитектурные решения, включая ADR 0004/0005 для IR/block VM и 0007 для function instantiation.
 - [`AGENTS.md`](AGENTS.md) — обязательные правила для ИИ-агентов.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — участие человека и делегирование задач агентам.
 
@@ -195,6 +198,7 @@ Production-заглушек этапа 3 не осталось. Независи
 | 1A. SourceMap и явный контекст компиляции | Завершён | Source identity, session, determinism, четыре новых reserved words |
 | 2. Типы, наивный интерпретатор и Beep WAV | Завершён | Semantic `check`, Typed AST, `sine`, `run` и PCM16 WAV |
 | 3. IR, bytecode и блочная VM | Завершён | Production VM path, allocation harness и documented benchmark baseline |
+| 4. Функции, блоки и pipeline | Завершён | Lexical scopes, Typed AST, function inlining, eager roots, origins и expansion limits; 208/208 tests |
 
 Текущий Rust API использует `SourceSpan` с `SourceId`; слова `export`, `package`, `from` и `as` зарезервированы и отклоняются на месте identifiers обычным `E1100`. Следующие этапы начинаются только после отдельной задачи и выполненного DoD предыдущего этапа.
 

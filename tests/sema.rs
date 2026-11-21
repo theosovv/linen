@@ -39,7 +39,10 @@ fn assert_expression_spans(expression: &TypedExpr, sources: &SourceMap) {
         TypedExprKind::Identifier { identifier, .. } => {
             assert_valid_span(identifier.span, sources);
         }
-        TypedExprKind::Call {
+        TypedExprKind::BuiltinCall {
+            callee, arguments, ..
+        }
+        | TypedExprKind::FunctionCall {
             callee, arguments, ..
         } => {
             assert_valid_span(callee.span, sources);
@@ -54,6 +57,12 @@ fn assert_expression_spans(expression: &TypedExpr, sources: &SourceMap) {
         }
         TypedExprKind::Group(inner) | TypedExprKind::LiftFloatToSig(inner) => {
             assert_expression_spans(inner, sources);
+        }
+        TypedExprKind::Block { bindings, result } => {
+            for binding in bindings {
+                assert_expression_spans(&binding.value, sources);
+            }
+            assert_expression_spans(result, sources);
         }
     }
 }
@@ -147,7 +156,7 @@ fn spec_5_5_typed_ast_preserves_ids_types_and_explicit_lifts() {
         .result
         .as_ref()
         .expect("the typed source should compile");
-    let bindings = &program.typed.bindings;
+    let bindings = &program.typed.bindings();
 
     assert_eq!(bindings.len(), 3);
     assert_eq!(bindings[0].id, BindingId::new(0));
@@ -160,7 +169,7 @@ fn spec_5_5_typed_ast_preserves_ids_types_and_explicit_lifts() {
     assert_eq!(outcome.symbols.len(), 3);
     assert!(!outcome.symbols.is_empty());
 
-    let TypedExprKind::Call {
+    let TypedExprKind::BuiltinCall {
         builtin, arguments, ..
     } = &bindings[1].value.kind
     else {
@@ -201,19 +210,19 @@ fn spec_4_4_mixed_arithmetic_and_out_annotations_insert_only_required_lifts() {
     let mixed = program(
         "let signal = sine(1);\nlet left = 1 + signal;\nlet right = signal + 1;\nlet out = left * right;\nrender 1s;\n",
     );
-    let TypedExprKind::Binary { left, .. } = &mixed.typed.bindings[1].value.kind else {
+    let TypedExprKind::Binary { left, .. } = &mixed.typed.bindings()[1].value.kind else {
         panic!("left binding must be binary");
     };
     assert!(matches!(left.kind, TypedExprKind::LiftFloatToSig(_)));
-    let TypedExprKind::Binary { right, .. } = &mixed.typed.bindings[2].value.kind else {
+    let TypedExprKind::Binary { right, .. } = &mixed.typed.bindings()[2].value.kind else {
         panic!("right binding must be binary");
     };
     assert!(matches!(right.kind, TypedExprKind::LiftFloatToSig(_)));
-    assert_eq!(mixed.typed.bindings[3].value.ty, Type::Sig);
+    assert_eq!(mixed.typed.bindings()[3].value.ty, Type::Sig);
 
     let output = program("let out: Sig = 1; render 1ms;");
     assert!(matches!(
-        output.typed.bindings[0].value.kind,
+        output.typed.bindings()[0].value.kind,
         TypedExprKind::LiftFloatToSig(_)
     ));
 }
@@ -229,7 +238,7 @@ fn spec_5_5_every_typed_ast_node_keeps_a_valid_source_span() {
     assert_valid_span(program.typed.span, &outcome.sources);
     assert_valid_span(program.typed.render.span, &outcome.sources);
     assert_valid_span(program.typed.render.duration.span, &outcome.sources);
-    for binding in &program.typed.bindings {
+    for binding in &program.typed.bindings() {
         assert_valid_span(binding.span, &outcome.sources);
         assert_valid_span(binding.name.span, &outcome.sources);
         if let Some(annotation) = &binding.annotation {
@@ -497,6 +506,28 @@ fn spec_4_4_constant_zero_division_and_nonfinite_float_are_distinct_errors() {
 }
 
 #[test]
+fn regression_stage_04_known_float_errors_precede_later_semantic_errors() {
+    assert_error(
+        "let out: Float = 1 / 0; render 1s;",
+        ErrorCode::ConstantDivisionByZero,
+        21,
+        22,
+    );
+    assert_error(
+        "let out = (1 / 0) + unknown; render 1s;",
+        ErrorCode::ConstantDivisionByZero,
+        15,
+        16,
+    );
+    assert_error(
+        "let out = (1e308 * 1e308) + unknown; render 1s;",
+        ErrorCode::InvalidFloat,
+        11,
+        24,
+    );
+}
+
+#[test]
 fn spec_6_2_numeric_duration_and_limit_messages_describe_the_failed_contract() {
     let assert_messages = |outcome: &CompileOutcome, message: &str, primary: &str| {
         let diagnostic = outcome
@@ -719,7 +750,7 @@ fn regression_stage_02_repeated_session_compilation_restarts_binding_ids() {
     assert_eq!(first, second);
     assert_eq!(session.symbols(), &first_symbols);
     assert_eq!(session.symbols().len(), 2);
-    for (index, binding) in second.typed.bindings.iter().enumerate() {
+    for (index, binding) in second.typed.bindings().iter().enumerate() {
         assert_eq!(binding.id, BindingId::new(index));
     }
 }

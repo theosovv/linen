@@ -1,0 +1,7 @@
+let ignore = (x: Sig): Sig => {
+  let unused = sine(x);
+  1
+};
+let bad = sine(0) / 0;
+let out = ignore(bad);
+render 1ms;

@@ -139,8 +139,8 @@ pub fn render<W: io::Write>(
 
     let output_span = program
         .typed
-        .bindings
-        .iter()
+        .bindings()
+        .into_iter()
         .find(|binding| binding.id == program.typed.output)
         .expect("a compiled program must have its output binding")
         .value
@@ -226,17 +226,24 @@ fn map_vm_runtime_error(
         return RenderError::MissingDebugOrigin { instruction };
     };
 
-    RenderError::Diagnostic(
-        Diagnostic::error(
-            ErrorCode::NonFiniteOutput,
-            "sine frequency contains NaN or infinity",
-            DiagnosticLabel::new(
-                origin.primary,
-                "this argument produces the invalid frequency",
-            ),
-        )
-        .with_sample_index(sample_index),
+    let mut diagnostic = Diagnostic::error(
+        ErrorCode::NonFiniteOutput,
+        "sine frequency contains NaN or infinity",
+        DiagnosticLabel::new(
+            origin.primary,
+            "this argument produces the invalid frequency",
+        ),
     )
+    .with_sample_index(sample_index);
+
+    for call in &origin.inlined_from {
+        diagnostic = diagnostic.with_secondary(DiagnosticLabel::new(
+            call.call_span,
+            "inlined from this function call",
+        ));
+    }
+
+    RenderError::Diagnostic(diagnostic)
 }
 
 fn nonfinite_output(span: SourceSpan, sample_index: u64) -> Diagnostic {

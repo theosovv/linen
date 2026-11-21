@@ -1,0 +1,3 @@
+let recursive = (x: Sig): Sig => recursive(x);
+let out = 1;
+render 1s;

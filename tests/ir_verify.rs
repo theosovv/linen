@@ -14,7 +14,7 @@ fn node(index: usize, op: NodeOp, result_type: ValueType, span: SourceSpan) -> N
         id: NodeId::new(index),
         op,
         result_type,
-        origin: NodeOrigin { primary: span },
+        origin: NodeOrigin::new(span),
     }
 }
 

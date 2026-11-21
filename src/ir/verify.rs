@@ -48,6 +48,11 @@ pub enum IrVerifyError {
         node: NodeId,
         span: SourceSpan,
     },
+    InvalidInlineOrigin {
+        node: NodeId,
+        inline_index: usize,
+        span: SourceSpan,
+    },
 }
 
 impl fmt::Display for IrVerifyError {
@@ -210,6 +215,16 @@ pub fn verify(graph: &Graph, sources: &SourceMap) -> Result<(), IrVerifyError> {
                 node: node.id,
                 span: node.origin.primary,
             });
+        }
+
+        for (inline_index, call) in node.origin.inlined_from.iter().enumerate() {
+            if !origin_is_valid(sources, call.call_span) {
+                return Err(IrVerifyError::InvalidInlineOrigin {
+                    node: node.id,
+                    inline_index,
+                    span: call.call_span,
+                });
+            }
         }
     }
 

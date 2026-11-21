@@ -4,8 +4,8 @@ mod parser;
 mod token;
 
 pub use ast::{
-    BinaryOp, DurationLiteral, Expr, ExprKind, Identifier, LetDecl, Program, RenderDecl,
-    TypeAnnotation, TypeName, UnaryOp,
+    BinaryOp, DurationLiteral, Expr, ExprKind, FunctionDecl, Identifier, LetDecl, Parameter,
+    Program, RenderDecl, TopDecl, TypeAnnotation, TypeName, UnaryOp,
 };
 pub use lexer::{Lexer, lex};
 pub use parser::{

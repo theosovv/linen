@@ -2,6 +2,6 @@ mod graph;
 mod lower;
 mod verify;
 
-pub use graph::{Graph, Node, NodeDescriptor, NodeId, NodeOp, NodeOrigin, ValueType};
+pub use graph::{CallOrigin, Graph, Node, NodeDescriptor, NodeId, NodeOp, NodeOrigin, ValueType};
 pub use lower::lower;
 pub use verify::{IrVerifyError, verify};

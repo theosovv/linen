@@ -4,9 +4,38 @@ use super::DurationUnit;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Program {
-    pub bindings: Vec<LetDecl>,
+    pub declarations: Vec<TopDecl>,
     pub render: RenderDecl,
     pub span: SourceSpan,
+}
+
+impl Program {
+    pub fn bindings(&self) -> Vec<&LetDecl> {
+        self.declarations
+            .iter()
+            .filter_map(|declaration| {
+                let TopDecl::Let(binding) = declaration else {
+                    return None;
+                };
+                Some(binding)
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TopDecl {
+    Let(LetDecl),
+    Function(FunctionDecl),
+}
+
+impl TopDecl {
+    pub const fn span(&self) -> SourceSpan {
+        match self {
+            Self::Let(binding) => binding.span,
+            Self::Function(function) => function.span,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +43,22 @@ pub struct LetDecl {
     pub name: Identifier,
     pub annotation: Option<TypeAnnotation>,
     pub value: Expr,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FunctionDecl {
+    pub name: Identifier,
+    pub parameters: Vec<Parameter>,
+    pub result: TypeAnnotation,
+    pub body: Expr,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Parameter {
+    pub name: Identifier,
+    pub annotation: TypeAnnotation,
     pub span: SourceSpan,
 }
 
@@ -88,6 +133,10 @@ pub enum ExprKind {
         right: Box<Expr>,
     },
     Group(Box<Expr>),
+    Block {
+        bindings: Vec<LetDecl>,
+        result: Box<Expr>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
