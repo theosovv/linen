@@ -1,0 +1,3 @@
+let seed = 1 + 1;
+let out = noise(seed);
+render 1ms;

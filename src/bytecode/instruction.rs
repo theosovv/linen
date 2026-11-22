@@ -1,4 +1,4 @@
-use crate::ir::NodeOrigin;
+use crate::ir::{NodeOrigin, RandomStreamId};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ScalarRegister(usize);
@@ -36,6 +36,33 @@ impl StateId {
 
     pub const fn index(self) -> usize {
         self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputLayout {
+    Mono(AudioRegister),
+    Stereo {
+        left: AudioRegister,
+        right: AudioRegister,
+    },
+}
+
+impl OutputLayout {
+    pub const fn channels(self) -> usize {
+        match self {
+            Self::Mono(_) => 1,
+            Self::Stereo { .. } => 2,
+        }
+    }
+
+    pub const fn contains(self, register: AudioRegister) -> bool {
+        match self {
+            Self::Mono(output) => output.index() == register.index(),
+            Self::Stereo { left, right } => {
+                left.index() == register.index() || right.index() == register.index()
+            }
+        }
     }
 }
 
@@ -88,8 +115,49 @@ pub enum Instruction {
         freq: Operand,
         state: StateId,
     },
+    Phasor {
+        dst: AudioRegister,
+        freq: Operand,
+        state: StateId,
+    },
+    Saw {
+        dst: AudioRegister,
+        freq: Operand,
+        state: StateId,
+    },
+    Square {
+        dst: AudioRegister,
+        freq: Operand,
+        state: StateId,
+    },
+    Triangle {
+        dst: AudioRegister,
+        freq: Operand,
+        state: StateId,
+    },
+    MakeStereo {
+        dst_left: AudioRegister,
+        dst_right: AudioRegister,
+        src_left: AudioRegister,
+        src_right: AudioRegister,
+    },
+    Pan {
+        dst_left: AudioRegister,
+        dst_right: AudioRegister,
+        input: Operand,
+        position: Operand,
+    },
+    Noise {
+        dst: AudioRegister,
+        stream: RandomStreamId,
+        state: StateId,
+    },
     SetOutput {
         src: AudioRegister,
+    },
+    SetStereoOutput {
+        src_left: AudioRegister,
+        src_right: AudioRegister,
     },
 }
 
@@ -99,7 +167,7 @@ pub struct Bytecode {
     pub scalar_register_count: usize,
     pub audio_register_count: usize,
     pub state_count: usize,
-    pub output: AudioRegister,
+    pub output: OutputLayout,
     pub debug_origins: Option<Vec<NodeOrigin>>,
 }
 

@@ -1,7 +1,10 @@
 use std::{error::Error, fmt};
 
-use crate::bytecode::{
-    self, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, StateId,
+use crate::{
+    bytecode::{
+        self, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, OutputLayout, StateId,
+    },
+    dsp::{self, Noise, Phasor, Saw, Sine, Square, Triangle},
 };
 
 use super::{VmConfig, VmConfigError, state::NodeState};
@@ -12,7 +15,7 @@ pub struct Vm<'program> {
     config: VmConfig,
     scalar_registers: Vec<f64>,
     audio_registers: Vec<Vec<f32>>,
-    states: Vec<NodeState>,
+    states: Vec<Option<NodeState>>,
     sample_index: u64,
 }
 
@@ -61,9 +64,16 @@ pub enum VmRuntimeError {
         requested: usize,
         maximum: usize,
     },
+    InvalidInterleavedBlock {
+        length: usize,
+    },
     NonFiniteFrequency {
         instruction: usize,
         state: StateId,
+        sample_index: u64,
+    },
+    NonFinitePosition {
+        instruction: usize,
         sample_index: u64,
     },
     NonFiniteOutput {
@@ -114,19 +124,46 @@ impl<'program> Vm<'program> {
             .checked_mul(audio_buffer_bytes)
             .ok_or(VmCreateError::SizeOverflow)?;
         checked_allocation_bytes(program.scalar_register_count, size_of::<f64>())?;
-        checked_allocation_bytes(program.state_count, size_of::<NodeState>())?;
+        checked_allocation_bytes(program.state_count, size_of::<Option<NodeState>>())?;
         checked_allocation_bytes(program.audio_register_count, size_of::<Vec<f32>>())?;
+        config
+            .block_size
+            .checked_mul(program.output.channels())
+            .ok_or(VmCreateError::SizeOverflow)?;
 
         bytecode::verify(program)?;
 
         let scalar_registers = vec![0.0; program.scalar_register_count];
         let mut audio_registers = Vec::with_capacity(program.audio_register_count);
-
         for _ in 0..program.audio_register_count {
             audio_registers.push(vec![0.0; config.block_size]);
         }
 
-        let states = vec![NodeState::new(); program.state_count];
+        let mut states = Vec::with_capacity(program.state_count);
+        states.resize_with(program.state_count, || None);
+        for instruction in &program.instructions {
+            match instruction {
+                Instruction::Sine { state, .. } => {
+                    states[state.index()] = Some(NodeState::Sine(Sine::new()));
+                }
+                Instruction::Phasor { state, .. } => {
+                    states[state.index()] = Some(NodeState::Phasor(Phasor::new()));
+                }
+                Instruction::Saw { state, .. } => {
+                    states[state.index()] = Some(NodeState::Saw(Saw::new()));
+                }
+                Instruction::Square { state, .. } => {
+                    states[state.index()] = Some(NodeState::Square(Square::new()));
+                }
+                Instruction::Triangle { state, .. } => {
+                    states[state.index()] = Some(NodeState::Triangle(Triangle::new()));
+                }
+                Instruction::Noise { stream, state, .. } => {
+                    states[state.index()] = Some(NodeState::Noise(Noise::new(stream.seed())));
+                }
+                _ => {}
+            }
+        }
 
         Ok(Self {
             program,
@@ -155,7 +192,7 @@ impl<'program> Vm<'program> {
         for buffer in &mut self.audio_registers {
             buffer.fill(0.0);
         }
-        for state in &mut self.states {
+        for state in self.states.iter_mut().flatten() {
             state.reset();
         }
         self.sample_index = 0;
@@ -166,21 +203,28 @@ impl<'program> Vm<'program> {
             return Ok(());
         }
 
-        if output.len() > self.config.block_size {
+        let channels = self.program.output.channels();
+        if channels == 2 && !output.len().is_multiple_of(2) {
+            return Err(VmRuntimeError::InvalidInterleavedBlock {
+                length: output.len(),
+            });
+        }
+        let frames = output.len() / channels;
+        if frames > self.config.block_size {
             return Err(VmRuntimeError::BlockTooLarge {
-                requested: output.len(),
+                requested: frames,
                 maximum: self.config.block_size,
             });
         }
 
         let block_start = self.sample_index;
         let block_length =
-            u64::try_from(output.len()).map_err(|_| VmRuntimeError::SampleIndexOverflow)?;
+            u64::try_from(frames).map_err(|_| VmRuntimeError::SampleIndexOverflow)?;
         let next_sample_index = block_start
             .checked_add(block_length)
             .ok_or(VmRuntimeError::SampleIndexOverflow)?;
 
-        for sample_offset in 0..output.len() {
+        for sample_offset in 0..frames {
             let sample_index = block_start + sample_offset as u64;
 
             for (instruction_index, instruction) in self.program.instructions.iter().enumerate() {
@@ -194,7 +238,6 @@ impl<'program> Vm<'program> {
                     Instruction::BinaryScalar { op, dst, lhs, rhs } => {
                         let lhs = self.scalar_registers[lhs.index()];
                         let rhs = self.scalar_registers[rhs.index()];
-
                         self.scalar_registers[dst.index()] = match op {
                             BinaryOp::Add => lhs + rhs,
                             BinaryOp::Subtract => lhs - rhs,
@@ -223,7 +266,6 @@ impl<'program> Vm<'program> {
                             &self.scalar_registers,
                             &self.audio_registers,
                         );
-
                         self.audio_registers[dst.index()][sample_offset] = match op {
                             BinaryOp::Add => lhs + rhs,
                             BinaryOp::Subtract => lhs - rhs,
@@ -231,40 +273,134 @@ impl<'program> Vm<'program> {
                             BinaryOp::Divide => lhs / rhs,
                         };
                     }
-                    Instruction::Sine { dst, freq, state } => {
+                    Instruction::Sine { dst, freq, state }
+                    | Instruction::Phasor { dst, freq, state }
+                    | Instruction::Saw { dst, freq, state }
+                    | Instruction::Square { dst, freq, state }
+                    | Instruction::Triangle { dst, freq, state } => {
                         let frequency = operand_at(
                             *freq,
                             sample_offset,
                             &self.scalar_registers,
                             &self.audio_registers,
                         );
-                        let sample = self.states[state.index()]
-                            .next_sample(f64::from(frequency), self.config.sample_rate)
-                            .map_err(|_| VmRuntimeError::NonFiniteFrequency {
-                                instruction: instruction_index,
-                                state: *state,
-                                sample_index,
-                            })?;
-
+                        let node_state = self.states[state.index()]
+                            .as_mut()
+                            .expect("verified state slot must be initialized");
+                        let result = match (instruction, node_state) {
+                            (Instruction::Sine { .. }, NodeState::Sine(state)) => {
+                                state.next_sample(f64::from(frequency), self.config.sample_rate)
+                            }
+                            (Instruction::Phasor { .. }, NodeState::Phasor(state)) => {
+                                state.next_sample(f64::from(frequency), self.config.sample_rate)
+                            }
+                            (Instruction::Saw { .. }, NodeState::Saw(state)) => {
+                                state.next_sample(f64::from(frequency), self.config.sample_rate)
+                            }
+                            (Instruction::Square { .. }, NodeState::Square(state)) => {
+                                state.next_sample(f64::from(frequency), self.config.sample_rate)
+                            }
+                            (Instruction::Triangle { .. }, NodeState::Triangle(state)) => {
+                                state.next_sample(f64::from(frequency), self.config.sample_rate)
+                            }
+                            _ => panic!("verified oscillator instruction must match its state"),
+                        };
+                        let sample = result.map_err(|_| VmRuntimeError::NonFiniteFrequency {
+                            instruction: instruction_index,
+                            state: *state,
+                            sample_index,
+                        })?;
                         self.audio_registers[dst.index()][sample_offset] = sample;
                     }
+                    Instruction::MakeStereo {
+                        dst_left,
+                        dst_right,
+                        src_left,
+                        src_right,
+                    } => {
+                        let left = self.audio_registers[src_left.index()][sample_offset];
+                        let right = self.audio_registers[src_right.index()][sample_offset];
+                        self.audio_registers[dst_left.index()][sample_offset] = left;
+                        self.audio_registers[dst_right.index()][sample_offset] = right;
+                    }
+                    Instruction::Pan {
+                        dst_left,
+                        dst_right,
+                        input,
+                        position,
+                    } => {
+                        let input = operand_at(
+                            *input,
+                            sample_offset,
+                            &self.scalar_registers,
+                            &self.audio_registers,
+                        );
+                        let position = operand_at(
+                            *position,
+                            sample_offset,
+                            &self.scalar_registers,
+                            &self.audio_registers,
+                        );
+                        let [left, right] = dsp::pan(input, position).map_err(|_| {
+                            VmRuntimeError::NonFinitePosition {
+                                instruction: instruction_index,
+                                sample_index,
+                            }
+                        })?;
+                        self.audio_registers[dst_left.index()][sample_offset] = left;
+                        self.audio_registers[dst_right.index()][sample_offset] = right;
+                    }
+                    Instruction::Noise { dst, state, .. } => {
+                        let node_state = self.states[state.index()]
+                            .as_mut()
+                            .expect("verified state slot must be initialized");
+                        let NodeState::Noise(noise) = node_state else {
+                            panic!("verified noise instruction must match its state");
+                        };
+                        self.audio_registers[dst.index()][sample_offset] = noise.next_sample();
+                    }
                     Instruction::SetOutput { src } => {
-                        let output_index = self.program.output.index();
+                        let OutputLayout::Mono(output) = self.program.output else {
+                            panic!("verified mono output must have mono layout");
+                        };
                         let value = self.audio_registers[src.index()][sample_offset];
-
-                        self.audio_registers[output_index][sample_offset] = value;
                         if !value.is_finite() {
                             return Err(VmRuntimeError::NonFiniteOutput { sample_index });
                         }
+                        self.audio_registers[output.index()][sample_offset] = value;
+                    }
+                    Instruction::SetStereoOutput {
+                        src_left,
+                        src_right,
+                    } => {
+                        let OutputLayout::Stereo { left, right } = self.program.output else {
+                            panic!("verified stereo output must have stereo layout");
+                        };
+                        let left_value = self.audio_registers[src_left.index()][sample_offset];
+                        let right_value = self.audio_registers[src_right.index()][sample_offset];
+                        if !left_value.is_finite() || !right_value.is_finite() {
+                            return Err(VmRuntimeError::NonFiniteOutput { sample_index });
+                        }
+                        self.audio_registers[left.index()][sample_offset] = left_value;
+                        self.audio_registers[right.index()][sample_offset] = right_value;
                     }
                 }
             }
         }
 
-        output.copy_from_slice(&self.audio_registers[self.program.output.index()][..output.len()]);
+        match self.program.output {
+            OutputLayout::Mono(register) => {
+                output.copy_from_slice(&self.audio_registers[register.index()][..frames]);
+            }
+            OutputLayout::Stereo { left, right } => {
+                for frame in 0..frames {
+                    output[frame * 2] = self.audio_registers[left.index()][frame];
+                    output[frame * 2 + 1] = self.audio_registers[right.index()][frame];
+                }
+            }
+        }
 
         self.sample_index = next_sample_index;
-
         Ok(())
     }
 }

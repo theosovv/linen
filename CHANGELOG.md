@@ -6,6 +6,12 @@
 
 ### Added
 
+- Production-реализация этапа 5: naive `phasor`/`saw`/`square`/`triangle`, descriptor-driven `gain`/`mix`, `Stereo`/`stereo`/`pan`, interleaved VM/PCM16 и explicit-seed SplitMix64 `noise`. Все временные заглушки удалены; 239 integration tests и allocation harness проходят, полный набор и реальные CLI mono/stereo/noise/atomic-error сценарии проверены. Anti-aliasing остаётся отдельным подэтапом.
+
+- Спецификация 0.6.0 и ADR 0013/0014/0015 для этапа 5: точные naive phase waveforms, `gain`/linear `mix`, явный `Stereo`, equal-power `pan`, interleaved frame-based VM/WAV output и explicit-seed SplitMix64 `noise` со stable `RandomStreamId`. Добавлены `E2107`, stage/task documents и полный DoD. На момент этой спецификационной записи production-этап ещё не был завершён; финальная реализация и приёмка добавлены отдельной записью выше.
+
+- Подготовительный test-facing каркас этапа 5: contextual `Stereo`, десять descriptors, phase/stereo/noise representations, `RandomStreamId`/`OutputLayout`, structural codegen/verifiers, typed VM states, interleaved VM/WAV, independent reference/generators и восемь документированных временных заглушек. Добавлены 28 integration tests и девять fixtures; все 208 прежних tests и allocation harness проходят. На момент подготовительной записи aggregate составлял 236 integration + 1 allocation test: 225 passed, 12 ожидаемых failed на заглушках, 0 ignored. Ручной stereo VM/WAV path и zero-allocation harness были проверены до последующей production-приёмки.
+
 - Production-реализация этапа 4: function/block/parser semantics, resolved IDs/scopes, Typed AST, graph-construction inlining, eager roots, sharing/fresh state, per-call Float evaluator, call origins и expansion limits. Все 208 integration tests и полный набор проходят; временные заглушки удалены.
 
 - Спецификация 0.5.0 и ADR 0007 для этапа 4: lexical `FunctionId`/`BindingId`, functions/blocks/pipeline, one-time eager args/locals, sharing/fresh state, extended roots, per-call Float diagnostics, inner-to-outer call origins и `FunctionLimits` с новым `E2106`. Добавлены stage/task documents. На момент подготовительной фазы production-функции ещё не работали; финальная реализация и приёмка добавлены отдельной записью.
@@ -41,6 +47,9 @@
 
 ### Fixed
 
+- Этап 5 после review: IR lowering и verifier используют согласованную оценку compile-time Float seed, поэтому `noise(-0)`, арифметические и per-call computed seeds больше не приводят к внутренней `InvalidNoiseSeed`. Добавлен regression fixture и посемпловая сверка с reference.
+- `MakeStereo` атомарно читает оба источника до записи destinations, а bytecode verifier отклоняет одинаковые left/right destinations у `MakeStereo`/`Pan` через `DuplicateStereoDestination`. Cross-alias regression больше не подменяет правый канал левым.
+
 - Block VM выполняет instructions в Vec order для каждого sample, а nonfinite output возвращается как structured VM error на `SetOutput`. Первый runtime diagnostic, его span и sample index снова совпадают с посемпловым reference при всех block sizes, включая конкурирующие errors в разных bindings.
 - Structural bytecode verifier не выделяет память пропорционально объявленным register/state counts. `Vm::new` проверяет arithmetic overflow и Vec capacity limits до verifier/runtime allocations и возвращает `SizeOverflow` вместо capacity-overflow panic.
 - `SetOutput` получает отдельный origin полного out value, включая aliases; frequency origin `Sine` сохранён для `E4001`. Добавлены regression fixtures/tests и exact-span проверка.
@@ -65,6 +74,8 @@
 
 ### Completed
 
+- Этап 5 завершён 2026-11-22 по спецификации 0.6.0: naive oscillators, `gain`/`mix`, `Stereo`/`pan`, interleaved VM/WAV и deterministic noise реализованы; review-дефекты computed seeds и register aliasing исправлены. Все 239 integration tests, allocation harness, общий набор и реальные CLI/atomic/determinism сценарии проходят. Anti-aliasing не входит в этот этап.
+
 - Этап 4 завершён 2026-11-21 по спецификации 0.5.0: функции, lexical scopes, блоки, pipeline, eager roots, sharing/fresh state, call origins, per-call Float diagnostics и expansion limits реализованы. Все 208 integration tests, differential/properties, zero-allocation checks, общий набор и реальные CLI check/run/atomic-error сценарии проходят.
 
 - Этап 3 завершён 2026-11-21 по спецификации 0.4.0: IR/bytecode/block VM, VM renderer, source diagnostics, differential/properties/compatibility, allocation-free steady-state и benchmark baseline проверены. Все 180 integration tests и общий набор проходят.
@@ -73,6 +84,10 @@
 - Этап 1A завершён по спецификации 0.2.1: SourceMap/SourceSpan, session/facade, source-aware diagnostics, CLI logical names, reserved words и determinism прошли узкие и общие проверки.
 
 ### Compatibility
+
+- Сознательный contract break спецификации 0.6.0: пользовательские функции с именами любых builtin descriptors, включая новый `mix`, отклоняются `E2000`. Исторический stage-4 fixture `mix` переименован в `mix_signals` без изменения сигнатуры, IR semantics или audio expected; программы пользователей с таким function declaration требуют переименования.
+
+### Compatibility (прежние этапы)
 
 - Сознательный contract break спецификации 0.2.0 реализован: четыре новых reserved words нельзя использовать как identifiers. Старые fixtures без них сохраняют прежние expected.
 - Уточнение 0.2.1 не меняет поведение реализованных `.ln`-программ или diagnostic codes. Оно документирует ограничение нестабильного Rust API: результат и diagnostics нельзя разрешать через независимую `SourceMap`; используйте карту той же session/outcome.

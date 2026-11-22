@@ -536,16 +536,21 @@ impl<'tokens> Parser<'tokens> {
             }
         }
 
+        let result_type = self.tokens.get(cursor + 2).map(|token| &token.kind);
+        let valid_result_type = matches!(result_type, Some(TokenKind::Float | TokenKind::Sig))
+            || matches!(
+                result_type,
+                Some(TokenKind::Identifier(name)) if name == "Stereo"
+            );
+
         matches!(
             self.tokens.get(cursor + 1).map(|token| &token.kind),
             Some(TokenKind::Colon | TokenKind::Float | TokenKind::Sig | TokenKind::FatArrow)
-        ) && matches!(
-            self.tokens.get(cursor + 2).map(|token| &token.kind),
-            Some(TokenKind::Float | TokenKind::Sig)
-        ) && matches!(
-            self.tokens.get(cursor + 3).map(|token| &token.kind),
-            Some(TokenKind::FatArrow)
-        )
+        ) && valid_result_type
+            && matches!(
+                self.tokens.get(cursor + 3).map(|token| &token.kind),
+                Some(TokenKind::FatArrow)
+            )
     }
 
     fn parse_function_decl(&mut self) -> Result<FunctionDecl, Diagnostic> {
@@ -596,7 +601,7 @@ impl<'tokens> Parser<'tokens> {
             let type_annotation = self.parse_annotation()?.ok_or_else(|| {
                 self.unexpected_token(
                     self.peek(),
-                    Some("`: Float` or `: Sig` after the parameter name"),
+                    Some("`: Float`, `: Sig` or `: Stereo` after the parameter name"),
                 )
             })?;
             let span = self.span_between(identifier.span, type_annotation.span)?;
@@ -654,13 +659,14 @@ impl<'tokens> Parser<'tokens> {
 
         let token = self
             .peek()
-            .ok_or_else(|| self.unexpected_token(None, Some("Float or Sig")))?;
+            .ok_or_else(|| self.unexpected_token(None, Some("Float, Sig or Stereo")))?;
 
         let (kind, span) = match &token.kind {
             TokenKind::Float => (TypeName::Float, token.span),
             TokenKind::Sig => (TypeName::Sig, token.span),
+            TokenKind::Identifier(name) if name == "Stereo" => (TypeName::Stereo, token.span),
             _ => {
-                return Err(self.unexpected_token(Some(token), Some("Float or Sig")));
+                return Err(self.unexpected_token(Some(token), Some("Float, Sig or Stereo")));
             }
         };
 

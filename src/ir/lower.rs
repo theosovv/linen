@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     SourceSpan,
-    ir::{CallOrigin, Node, NodeId, NodeOp, NodeOrigin, ValueType},
+    ir::{CallOrigin, Node, NodeId, NodeOp, NodeOrigin, RandomStreamId, ValueType},
     sema::{
         BindingId, BuiltinId, FunctionId, Type, TypedBinding, TypedExpr, TypedFunction,
         TypedProgram, TypedTopDecl,
@@ -10,7 +10,7 @@ use crate::{
     syntax::BinaryOp,
 };
 
-use super::Graph;
+use super::{Graph, graph::const_float_value};
 
 struct Lowering<'a> {
     nodes: Vec<Node>,
@@ -105,10 +105,230 @@ fn lower_function_call(
     result
 }
 
+fn lower_builtin(
+    value: &TypedExpr,
+    builtin: BuiltinId,
+    arguments: &[TypedExpr],
+    program: &TypedProgram,
+    lowering: &mut Lowering,
+) -> NodeId {
+    match builtin {
+        BuiltinId::SINE => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "sine arity must be checked before lowering"
+            );
+
+            let frequency_expression = &arguments[0];
+            let frequency = lower_expr(frequency_expression, program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Sine(frequency),
+                ValueType::Sig,
+                frequency_expression.span,
+            )
+        }
+        BuiltinId::PHASOR => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "phasor arity must be checked before lowering"
+            );
+
+            let frequency_expression = &arguments[0];
+            let frequency = lower_expr(frequency_expression, program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Phasor(frequency),
+                ValueType::Sig,
+                frequency_expression.span,
+            )
+        }
+        BuiltinId::SAW => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "saw arity must be checked before lowering"
+            );
+
+            let frequency_expression = &arguments[0];
+            let frequency = lower_expr(frequency_expression, program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Saw(frequency),
+                ValueType::Sig,
+                frequency_expression.span,
+            )
+        }
+        BuiltinId::SQUARE => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "square arity must be checked before lowering"
+            );
+
+            let frequency_expression = &arguments[0];
+            let frequency = lower_expr(frequency_expression, program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Square(frequency),
+                ValueType::Sig,
+                frequency_expression.span,
+            )
+        }
+        BuiltinId::TRIANGLE => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "triangle arity must be checked before lowering"
+            );
+
+            let frequency_expression = &arguments[0];
+            let frequency = lower_expr(frequency_expression, program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Triangle(frequency),
+                ValueType::Sig,
+                frequency_expression.span,
+            )
+        }
+        BuiltinId::GAIN => {
+            assert_eq!(
+                arguments.len(),
+                2,
+                "gain arity must be checked before lowering"
+            );
+
+            let input = lower_expr(&arguments[0], program, lowering);
+            let amount = lower_expr(&arguments[1], program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Mul(input, amount),
+                ValueType::Sig,
+                value.span,
+            )
+        }
+        BuiltinId::MIX => {
+            assert_eq!(
+                arguments.len(),
+                3,
+                "mix arity must be checked before lowering"
+            );
+
+            let a = lower_expr(&arguments[0], program, lowering);
+            let b = lower_expr(&arguments[1], program, lowering);
+            let balance = lower_expr(&arguments[2], program, lowering);
+
+            let one = push_node(
+                lowering,
+                NodeOp::ConstFloat(1.0),
+                ValueType::Float,
+                value.span,
+            );
+            let one = push_node(
+                lowering,
+                NodeOp::LiftFloatToSig(one),
+                ValueType::Sig,
+                value.span,
+            );
+            let a_weight = push_node(
+                lowering,
+                NodeOp::Sub(one, balance),
+                ValueType::Sig,
+                value.span,
+            );
+            let left = push_node(
+                lowering,
+                NodeOp::Mul(a, a_weight),
+                ValueType::Sig,
+                value.span,
+            );
+            let right = push_node(
+                lowering,
+                NodeOp::Mul(b, balance),
+                ValueType::Sig,
+                value.span,
+            );
+
+            push_node(
+                lowering,
+                NodeOp::Add(left, right),
+                ValueType::Sig,
+                value.span,
+            )
+        }
+        BuiltinId::STEREO => {
+            assert_eq!(
+                arguments.len(),
+                2,
+                "stereo arity must be checked before lowering"
+            );
+
+            let left = lower_expr(&arguments[0], program, lowering);
+            let right = lower_expr(&arguments[1], program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Stereo(left, right),
+                ValueType::Stereo,
+                value.span,
+            )
+        }
+        BuiltinId::PAN => {
+            assert_eq!(
+                arguments.len(),
+                2,
+                "pan arity must be checked before lowering"
+            );
+
+            let input = lower_expr(&arguments[0], program, lowering);
+            let position_expression = &arguments[1];
+            let position = lower_expr(position_expression, program, lowering);
+
+            push_node(
+                lowering,
+                NodeOp::Pan(input, position),
+                ValueType::Stereo,
+                position_expression.span,
+            )
+        }
+        BuiltinId::NOISE => {
+            assert_eq!(
+                arguments.len(),
+                1,
+                "noise arity must be checked before lowering"
+            );
+
+            let seed = lower_expr(&arguments[0], program, lowering);
+            let seed_value = const_float_value(&lowering.nodes, seed)
+                .expect("noise seed must be a checked compile-time Float");
+
+            push_node(
+                lowering,
+                NodeOp::Noise {
+                    seed,
+                    stream: RandomStreamId::new(seed_value as u64),
+                },
+                ValueType::Sig,
+                value.span,
+            )
+        }
+        _ => panic!("unknown builtin ID {}", builtin.index()),
+    }
+}
+
 fn lower_expr(value: &TypedExpr, program: &TypedProgram, lowering: &mut Lowering) -> NodeId {
     let ty = match value.ty {
         Type::Float => ValueType::Float,
         Type::Sig => ValueType::Sig,
+        Type::Stereo => ValueType::Stereo,
     };
 
     match &value.kind {
@@ -127,28 +347,7 @@ fn lower_expr(value: &TypedExpr, program: &TypedProgram, lowering: &mut Lowering
             builtin,
             callee: _,
             arguments,
-        } => {
-            assert_eq!(
-                *builtin,
-                BuiltinId::SINE,
-                "only resolved sine calls can reach lowering"
-            );
-            assert_eq!(
-                arguments.len(),
-                1,
-                "sine arity must be checked before lowering"
-            );
-
-            let frequency_expression = &arguments[0];
-            let frequency = lower_expr(frequency_expression, program, lowering);
-
-            push_node(
-                lowering,
-                NodeOp::Sine(frequency),
-                ValueType::Sig,
-                frequency_expression.span,
-            )
-        }
+        } => lower_builtin(value, *builtin, arguments, program, lowering),
         crate::sema::TypedExprKind::FunctionCall {
             function,
             callee: _,

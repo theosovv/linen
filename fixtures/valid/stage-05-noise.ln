@@ -1,0 +1,4 @@
+let left = noise(0);
+let right = noise(1);
+let out = stereo(left, right);
+render 1ms;

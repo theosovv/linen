@@ -1,0 +1,3 @@
+let input = sine(480) * 0.2;
+let out = input |> pan(0);
+render 1ms;

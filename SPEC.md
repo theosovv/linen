@@ -3,8 +3,8 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.5.0
-- Дата: 2026-11-21
+- Версия спецификации: 0.6.0
+- Дата: 2026-11-22
 - Рабочее название: **linen**
 - Репозиторий: `linen`
 - Расширение файлов: `.ln`
@@ -12,7 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
-- Состояние реализации: этапы 0, 1, 1A, 2, 3 и 4 завершены по спецификации 0.5.0. Функции, lexical scopes, блоки, pipeline, eager roots, sharing/fresh state, per-call Float checks, call origins и expansion limits реализованы; все 208 integration tests и полный проверочный набор проходят. Этап 5 не начат
+- Состояние реализации: этапы 0, 1, 1A, 2, 3, 4 и 5 завершены. По спецификации 0.6.0 реализованы naive phase oscillators, arithmetic builtins, `Stereo`/`pan`, interleaved VM/WAV и deterministic noise; все 239 integration tests, allocation harness, общий набор и реальные CLI-сценарии проходят. PolyBLEP и другой anti-aliasing не входят в завершённый этап
 
 ## 0. Как читать документ
 
@@ -358,7 +358,7 @@ sine(freq: Sig): Sig
 Синтаксис:
 
 ```linen
-let mix = (a: Sig, b: Sig, balance: Sig): Sig =>
+let mix_signals = (a: Sig, b: Sig, balance: Sig): Sig =>
   a * (1 - balance) + b * balance;
 
 let shaped = (x: Sig): Sig => {
@@ -427,7 +427,7 @@ x |> f(a, b)    ≡ f(x, a, b)
 - `BindingId` однозначно идентифицирует top-level binding, parameter или local `let` в одной компиляции; `FunctionId` отдельно идентифицирует пользовательскую функцию. Повторное использование definition сохраняет ID, одинаковые имена в разных scopes получают разные IDs.
 - Функция видит свои параметры/locals и ранее объявленные top-level values/functions. Захваченный top-level binding сохраняет sharing. Поздние declarations и текущая функция в собственном теле невидимы, поэтому forward calls и прямая/косвенная рекурсия отклоняются resolution.
 - Параметры и `let` непосредственно тела функции образуют один scope; явно вложенный block создаёт дочерний scope и разрешает shadowing внешнего value binding.
-- Пользовательские top-level values/functions используют единый namespace для duplicate-проверки. Функция с именем builtin `sine` отклоняется как `E2000`. Существующий value binding `sine` остаётся допустимым и не мешает вызову builtin `sine`.
+- Пользовательские top-level values/functions используют единый namespace для duplicate-проверки. На этапе 4 функция с именем единственного тогда builtin `sine` отклонялась как `E2000`; начиная с этапа 5 то же правило применяется к любому текущему builtin descriptor, включая `mix`. Это сознательный contract break для пользовательских функций с именами новых builtins. Value binding с именем builtin остаётся допустимым и не мешает вызову builtin.
 - Function name в value position не является first-class value; value binding в callee position не становится функцией. Anonymous functions отсутствуют.
 - Тело каждой функции проходит semantic checks даже без вызовов. Невызванная функция не создаёт IR nodes/roots.
 - Каждый аргумент вычисляется слева направо ровно один раз на вызов, даже если параметр не используется. Parameter reference обозначает sharing результата аргумента. Подстановка и повторное инстанцирование аргумента при каждом reference запрещены.
@@ -497,6 +497,117 @@ render 4s;
 Повторный рендер того же скомпилированного графа после `reset()` обязан начинаться с исходного состояния. Случайные узлы будущих этапов должны иметь явный seed или получать его из явного `RenderConfig`. Скрытый системный random запрещён. Подробный state transition зафиксирован в ADR 0006.
 
 Циклы разрешены только через узлы с задержкой. Конструкция вида `let x = x + 1` невозможна из-за отсутствия forward reference. Будущий `feedback` обязан включать задержку минимум на один семпл и иметь явное начальное состояние.
+
+### 4.8.1. Базовые осцилляторы и arithmetic builtins — этап 5
+
+Этап 5 добавляет descriptors и builtins:
+
+```text
+phasor(freq: Sig): Sig
+saw(freq: Sig): Sig
+square(freq: Sig): Sig
+triangle(freq: Sig): Sig
+gain(input: Sig, amount: Sig): Sig
+mix(a: Sig, b: Sig, balance: Sig): Sig
+```
+
+`Float` аргументы автоматически поднимаются в `Sig` по §4.4. Каждый frequency-based осциллятор хранит независимую phase `f64` в периодах с начальным значением `0.0`. На каждом frame сначала проверяется конечность runtime frequency, затем вычисляется output из текущей phase, после чего phase обновляется:
+
+```text
+phase = (phase + f64(freq) / sample_rate).rem_euclid(1.0)
+```
+
+Формулы новых осцилляторов до преобразования результата в `f32`:
+
+| Builtin | Формула текущего output | Начальный output |
+|---|---|---:|
+| `phasor` | `phase` | `0` |
+| `saw` | `2 × phase − 1` | `-1` |
+| `square` | `+1`, если `phase < 0.5`; иначе `−1` | `+1` |
+| `triangle` | `4 × phase − 1`, если `phase < 0.5`; иначе `3 − 4 × phase` | `-1` |
+
+- `saw` — rising naive saw; `triangle` начинается с `-1`, поднимается до `+1` на phase `0.5` и затем опускается.
+- Нулевая частота повторяет начальное значение; отрицательная частота использует Euclidean modulo; конечная частота выше Nyquist не отклоняется.
+- Эти узлы намеренно не band-limited и дают естественный aliasing. PolyBLEP или другой anti-aliasing не заменяет их скрыто и требует отдельного подэтапа/контракта.
+- Нечисловая frequency возвращает `E4001` с primary frequency expression, zero-based frame index и call origins; phase ошибочного узла не меняется.
+- Каждый вызов и каждое function-body инстанцирование получают fresh state; shared bindings сохраняют один узел. `reset()` возвращает phase к нулю.
+- Phase узлы используют один audio register, один state slot и одну `f64` phase; capability — `CoreAudio`. Подробности и oracles — ADR 0013.
+
+`gain` и `mix` являются descriptor-driven graph-construction sugar:
+
+```text
+gain(input, amount)       = input × amount
+mix(a, b, balance)        = a × (1 − balance) + b × balance
+```
+
+`balance` не clamp’ится: `0` выбирает `a`, `1` выбирает `b`, остальные конечные значения интерполируют или экстраполируют по указанной формуле. Dynamic operations сохраняют IEEE 754; нечисловой результат обнаруживается на output. Аргументы lower’ятся слева направо ровно один раз. Повторное использование `balance` в формуле обозначает sharing его `NodeId`, а не повторное инстанцирование. Synthetic arithmetic nodes получают полный call span и текущий origin chain; отдельных runtime instructions/state у sugar нет.
+
+### 4.8.2. `Stereo`, `stereo` и `pan` — этап 5
+
+Грамматика type annotations этапа 5 расширяется:
+
+```ebnf
+type_name = "Float" | "Sig" | "Stereo" ;
+```
+
+Добавляются builtins:
+
+```text
+stereo(left: Sig, right: Sig): Stereo
+pan(input: Sig, position: Sig): Stereo
+```
+
+`Stereo` распознаётся контекстно только в type annotation и не становится новым reserved word: одноимённый identifier вне аннотации сохраняет прежнее поведение. `Stereo` — мономорфное значение ровно из двух `Sig` каналов. Оно допускается в bindings, function parameters/results и annotations по общим resolved-ID/sharing правилам. `out` принимает `Sig` или `Stereo`; явная аннотация `out` обязана соответствовать значению. `Float` выражение по-прежнему может подняться только в mono `Sig`. Неявные `Sig → Stereo`, `Float → Stereo`, `Stereo → Sig`, автоматическое дублирование mono и downmix запрещены. Arithmetic/unary operators над `Stereo` отсутствуют; `gain` и `mix` принимают только `Sig`.
+
+`stereo` вычисляет left, затем right ровно один раз. Оба канала сохраняют независимые values и origins. Stereo binding/function values участвуют в eager roots и sharing так же, как mono values.
+
+`pan` использует equal-power law:
+
+```text
+p = clamp(position, -1, +1)
+angle = (p + 1) × π / 4
+left  = input × cos(angle)
+right = input × sin(angle)
+```
+
+Center даёт `sqrt(1/2)` на канал; position вне диапазона clamp’ится. Нечисловая position возвращает `E4001` с primary position expression, frame index и call origins. Нечисловой input распространяется по IEEE и обнаруживается на output. `pan` stateless и требует два audio registers.
+
+Typed AST/IR получают `Stereo` type, IR — `Stereo`/`Pan` ops. Codegen использует явную пару audio registers, а bytecode — `OutputLayout::{Mono,Stereo}` и финальную mono/stereo output instruction. Обычные instructions не записывают dedicated output registers; verifiers проверяют оба канала, инициализацию и layout. Stereo ops получают `RuntimeCapability::Multichannel`; generic multichannel не добавляется. Подробная архитектура — ADR 0014.
+
+VM output interleaved:
+
+```text
+mono:   M0, M1, M2, ...
+stereo: L0, R0, L1, R1, ...
+```
+
+`block_size` — maximum frames на render call независимо от channel count. Для stereo длина output slice обязана быть чётной и не превышать `block_size × 2`; нарушение — typed VM error до dispatch. Пустой slice остаётся no-op. `sample_index`, runtime diagnostic index и `RenderReport.samples` считают frames; в mono это прежнее число samples. Output channels проверяются left перед right на каждом frame. Все buffers/scratch preallocated, debug stripping не меняет channels или samples.
+
+### 4.8.3. Детерминированный `noise` — этап 5
+
+```text
+noise(seed: Float): Sig
+```
+
+Seed вычисляется при graph construction и обязан быть конечным целым в `0..=9_007_199_254_740_991` (`2^53−1`), после чего точно представляется как `u64`. Finite fractional, отрицательный и out-of-range seed — `E2107`; `-0` эквивалентен `0`. `E2104`/`E2105` сохраняют приоритет для ошибок compile-time expression. Parameter-dependent seed проверяется при каждой function конкретизации: primary остаётся seed expression в определении, call spans добавляются inner-to-outer. Известные seeds проверяются и в невызванных функциях.
+
+`RandomStreamId` равен явному seed и не зависит от `NodeId`, `SourceId`, `BindingId`, function/call index, instruction index, memory address, inlining, optimization или debug info. Равные seeds намеренно дают одинаковые последовательности; каждый noise node имеет независимое state и fresh per-call экземпляр. `reset()` восстанавливает исходный stream.
+
+Алгоритм — SplitMix64 с wrapping unsigned `u64` arithmetic:
+
+```text
+state = seed
+next_sample:
+    state = state + 0x9E3779B97F4A7C15
+    z = state
+    z = (z XOR (z >> 30)) × 0xBF58476D1CE4E5B9
+    z = (z XOR (z >> 27)) × 0x94D049BB133111EB
+    z = z XOR (z >> 31)
+    value = float32(z >> 40) / 8388608.0 − 1.0
+    return value
+```
+
+Используются верхние 24 бита результата; output находится в `[-1, 1)`. Один transition выполняется на frame независимо от block/channel layout. IR хранит checked constant seed input и `RandomStreamId`; verifier проверяет их согласованность, а bytecode сохраняет stream ID. Noise требует один audio register, один state slot и state для initial/current `u64`; capability — `CoreAudio`. Системный random и скрытый seed в `RenderConfig` запрещены. Точный контракт и vectors — ADR 0015.
 
 ### 4.9. Единицы измерения
 
@@ -740,7 +851,7 @@ CallOrigin
   function: FunctionId
   call_span: SourceSpan                  # полный direct/pipeline call
 
-NodeOp (начальный набор)
+NodeOp (этапы 3–5)
   ConstFloat(f64)
   LiftFloatToSig(NodeId)
   Neg(NodeId)
@@ -749,36 +860,44 @@ NodeOp (начальный набор)
   Mul(NodeId, NodeId)
   Div(NodeId, NodeId)
   Sine(NodeId)
+  Phasor(NodeId)
+  Saw(NodeId)
+  Square(NodeId)
+  Triangle(NodeId)
+  Stereo(NodeId, NodeId)
+  Pan(NodeId, NodeId)
+  Noise { seed: NodeId, stream: RandomStreamId }
 ```
 
 Требования:
 
 - `NodeId` — zero-based Vec index, стабильный только внутри одной конкретной версии графа; `Node.id` совпадает с фактическим index;
 - каждый input ссылается на существующий узел с индексом строго меньше consuming node, поэтому canonical graph ацикличен и не требует topological sort в codegen;
-- arity и типы входов соответствуют операции. `ConstFloat` и scalar arithmetic имеют тип `Float`; `LiftFloatToSig` переводит `Float` в `Sig`; signal arithmetic сохраняет `Sig`; `Sine` принимает и возвращает `Sig`;
-- входы binary IR operation имеют одинаковый тип, совпадающий с результатом: mixed arithmetic уже содержит явные `LiftFloatToSig` nodes. Scalar arithmetic остаётся `f64`, signal runtime — `f32`;
-- `roots` содержит value каждого top-level binding в declaration order, включая bindings, не используемые в `out`. На этапе 4 он также содержит value каждого user-call аргумента и каждого local `let` в момент eager-вычисления; внутренние roots предшествуют root enclosing binding. Это сохраняет вычисление и runtime-error ordering даже неиспользуемых parameters/locals. Несколько roots могут содержать один `NodeId` как sharing;
-- `output` — value binding `out`, обязан входить в `roots` и иметь тип `Sig`; `render_samples` копируется из Typed AST;
+- `ValueType` включает `Float`, `Sig` и начиная с этапа 5 `Stereo`. `ConstFloat` и scalar arithmetic имеют тип `Float`; `LiftFloatToSig` переводит `Float` в `Sig`; signal arithmetic сохраняет `Sig`; phase ops принимают и возвращают `Sig`; `Stereo`/`Pan` принимают `Sig` inputs и возвращают `Stereo`; `Noise.seed` — checked `Float` constant, а результат — `Sig`;
+- входы binary IR operation имеют одинаковый тип, совпадающий с результатом: mixed arithmetic уже содержит явные `LiftFloatToSig` nodes. `Stereo` не участвует в arithmetic/unary ops. Scalar arithmetic остаётся `f64`, audio channels — `f32`;
+- `roots` содержит value каждого top-level binding в declaration order, включая bindings, не используемые в `out`. Начиная с этапа 4 он также содержит value каждого user-call аргумента и каждого local `let` в момент eager-вычисления; внутренние roots предшествуют root enclosing binding. Это сохраняет вычисление и runtime-error ordering даже неиспользуемых parameters/locals. Несколько roots могут содержать один `NodeId` как sharing;
+- `output` — value binding `out`, обязан входить в `roots` и иметь тип `Sig` или `Stereo`; `render_samples` копируется из Typed AST и означает frames;
 - все узлы достижимы хотя бы из одного root. Unreachable nodes будущих passes требуют отдельного контракта; dead-node elimination отсутствует;
-- lowering обрабатывает declarations, arguments и operands слева направо. Identifier reference повторно использует `NodeId` resolved binding; `Group` прозрачен. User call инстанцирует тело по ADR 0007: args до входа в функцию, locals в исходном порядке, fresh body nodes на каждый вызов. CSE, constant folding, reordering и другие optimizations не выполняются;
+- lowering обрабатывает declarations, arguments и operands слева направо. Identifier reference повторно использует `NodeId` resolved binding; `Group` прозрачен. User call инстанцирует тело по ADR 0007: args до входа в функцию, locals в исходном порядке, fresh body/state nodes на каждый вызов. Arithmetic sugar этапа 5 сохраняет one-time args и sharing. CSE, constant folding, reordering и другие optimizations не выполняются;
 - после оптимизирующего pass в будущем ID могут измениться;
 - каждый исходный IR-узел имеет валидный primary `SourceSpan`; origin не влияет на звук. Без inlining `inlined_from` пуст. При inlining chain упорядочен от внутреннего к внешнему вызову, каждый `CallOrigin` содержит resolved `FunctionId` и полный call span;
 - аргументы получают origin своего call-site/outer context, но не frame вызываемой ими функции. Shared/captured nodes не переписывают origin;
-- origin `Sine` указывает на frequency expression для стабильной `E4001`; полный call span остаётся в Typed AST и `inlined_from`. Origin остальных nodes соответствует их Typed expression;
+- origin всех frequency-based oscillator nodes указывает на frequency expression; origin `Pan` — на position expression для стабильной `E4001`. Полный call span остаётся в Typed AST и `inlined_from`. Origin остальных и synthetic arithmetic nodes соответствует их Typed expression либо полному builtin call по ADR 0013;
+- `RandomStreamId` в `Noise` согласован с checked constant seed по ADR 0015 и не выводится из NodeId;
 - `verify` дополнительно проверяет каждый inline call span. `FunctionId` соответствие определению проверяется через Typed AST/`SymbolStorage` и lowering tests;
 - после optimization нельзя сохранять заведомо ложный span: при объединении узлов сохраняется точный origin либо явный merged/unknown origin по правилам соответствующего ADR;
 - source origin используется diagnostics/debug info, но может отсутствовать в compact production bytecode;
 - сериализуемый стабильный формат IR на старте отсутствует.
 
-Каждый добавленный IR op имеет центральный descriptor с runtime capability и resource model. На этапе 3 существует только `RuntimeCapability::CoreAudio`, без пустого перечисления будущих возможностей. `ResourceModel` указывает scalar registers, audio registers, state slots и state bytes на node. Const/scalar ops требуют один scalar register; lift/signal ops — один audio register; `Sine` дополнительно требует один state slot и одну `f64` phase. Эти metadata согласованы с `BuiltinDescriptor` `sine`; buffer bytes дополнительно зависят от maximum block size.
+Каждый добавленный IR op имеет центральный descriptor с runtime capability и resource model. Существующие capabilities — `CoreAudio` и, начиная с этапа 5, `Multichannel` для `Stereo`/`Pan`; пустое перечисление будущих возможностей не создаётся. `ResourceModel` указывает scalar registers, audio registers, state slots и state bytes на node. Const/scalar ops требуют один scalar register; lift/signal ops — один audio register; каждый phase oscillator дополнительно требует один state slot и одну `f64` phase. `Stereo`/`Pan` требуют два audio registers без state; `Noise` — один audio register, один state slot и initial/current `u64`. Arithmetic sugar получает resources фактически lowered nodes. Metadata согласованы с builtin descriptors; buffer bytes дополнительно зависят от maximum block size.
 
-`verify(graph, sources)` возвращает структурированную ошибку и проверяет IDs, input references/order, типы, finite constants, roots/output, reachability и разрешимость origins в исходной `SourceMap`, включая offsets и UTF-8 boundaries. Нарушение — internal compiler invariant с typed compile error и CLI exit `3`, а не source diagnostic, молчаливый fallback или panic на пользовательской программе. Подробная архитектура — ADR 0004.
+`verify(graph, sources)` возвращает структурированную ошибку и проверяет IDs, input references/order, типы, finite constants, roots/output и channel type, reachability, seed/stream consistency и разрешимость origins в исходной `SourceMap`, включая offsets и UTF-8 boundaries. Нарушение — internal compiler invariant с typed compile error и CLI exit `3`, а не source diagnostic, молчаливый fallback или panic на пользовательской программе. Подробная архитектура — ADR 0004, 0013–0015.
 
 ### 5.7. Bytecode и VM
 
-VM регистровая и блочная. Различаются typed scalar registers (`f64`), audio registers (`f32` buffers), node state slots и dedicated output audio register. `ScalarRegister`, `AudioRegister` и `StateId` имеют отдельные zero-based index spaces.
+VM регистровая и блочная. Различаются typed scalar registers (`f64`), audio registers (`f32` buffers), node state slots и один либо два dedicated output audio registers. `ScalarRegister`, `AudioRegister` и `StateId` имеют отдельные zero-based index spaces. Каждый audio register хранит один канал; `Stereo` value занимает явную пару registers.
 
-Начальный bytecode:
+Bytecode этапов 3–5:
 
 ```text
 Bytecode
@@ -786,8 +905,11 @@ Bytecode
   scalar_register_count: usize
   audio_register_count: usize
   state_count: usize
-  output: AudioRegister
+  output: OutputLayout
   debug_origins: Option<Vec<NodeOrigin>>
+
+OutputLayout  Mono(AudioRegister)
+            | Stereo { left: AudioRegister, right: AudioRegister }
 
 ConstScalar   dst_scalar, value: f64
 Lift          dst_audio, src_scalar
@@ -796,46 +918,56 @@ NegAudio      dst_audio, src_audio
 BinaryScalar  op, dst_scalar, lhs_scalar, rhs_scalar
 BinaryAudio   op, dst_audio, lhs_operand, rhs_operand
 Sine          dst_audio, freq_operand, state
+Phasor        dst_audio, freq_operand, state
+Saw           dst_audio, freq_operand, state
+Square        dst_audio, freq_operand, state
+Triangle      dst_audio, freq_operand, state
+MakeStereo    dst_left, dst_right, src_left, src_right
+Pan           dst_left, dst_right, input_operand, position_operand
+Noise         dst_audio, stream: RandomStreamId, state
 SetOutput     src_audio
+SetStereoOutput src_left, src_right
 
 Operand       Scalar(ScalarRegister) | Audio(AudioRegister)
 ```
 
-Физический layout закреплён ADR 0005 и не является stable ABI. Codegen выделяет один register на IR node в canonical order, последовательные уникальные `StateId` для `Sine` и dedicated output register. Ровно одна финальная `SetOutput` копирует output node в output register; другие instructions не пишут в него. Buffer reuse и другие optimizations отсутствуют.
+Физический layout закреплён ADR 0005 и 0014 и не является stable ABI. Codegen выделяет scalar register на scalar node, один audio register на mono audio node и пару на stereo node в canonical order. Stateful nodes получают последовательные уникальные `StateId`; dedicated output layout получает один или два registers. Ровно одна финальная `SetOutput`/`SetStereoOutput` копирует каналы в dedicated output registers; другие instructions не пишут в них. Buffer reuse и optimizations отсутствуют.
 
-Обычный codegen сохраняет explicit lifts и использует audio operands для signal arithmetic/`Sine`. Verifier и VM также допускают scalar `Operand` у `BinaryAudio` и `Sine`; scalar path и signal path обязаны согласовываться в пределах численного допуска. Скалярные вычисления используют `f64`, audio samples — `f32`; dynamic division сохраняет IEEE 754.
+Обычный codegen сохраняет explicit lifts и использует audio operands для signal arithmetic и oscillator/pan inputs. Verifier и VM также допускают scalar `Operand` у mono audio operations; scalar path и signal path обязаны согласовываться в пределах численного допуска. Скалярные вычисления используют `f64`, audio channels — `f32`; dynamic division сохраняет IEEE 754. `Noise` не получает runtime operand: checked stream ID переносится из IR.
 
-`debug_origins = Some` содержит ровно один валидный `NodeOrigin` на instruction. Codegen получает origin полного out value для `SetOutput` отдельно от output node, поэтому frequency origin `Sine` не подменяет полный out span. `None` обозначает compact bytecode. Stripping debug info не меняет instructions, state/register layout или звук. Bytecode не считается стабильным ABI раньше отдельного решения, но любой сохраняемый формат, если он появится отдельной задачей, имеет явную bytecode/VM version с первой persisted версии.
+`debug_origins = Some` содержит ровно один валидный `NodeOrigin` на instruction. Codegen получает origin полного out value для финальной output instruction отдельно от output node, поэтому oscillator/pan origin не подменяет полный out span. `None` обозначает compact bytecode. Stripping debug info не меняет instructions, state/register/channel layout или звук. Bytecode не считается стабильным ABI; любой сохраняемый формат, если появится отдельной задачей, имеет явную bytecode/VM version.
 
 Правила bytecode verifier:
 
 - тип и диапазон каждого register index проверяются до исполнения; каждый input инициализирован предыдущей instruction;
-- operands соответствуют instruction, `ConstScalar` finite, dedicated output не записывается обычными instructions;
-- каждый `StateId` существует, принадлежит ровно одному `Sine`, и все state slots покрыты;
-- существует ровно одна финальная `SetOutput` с инициализированным audio src и in-range output;
+- operands соответствуют instruction, `ConstScalar` finite, dedicated output registers не записываются обычными instructions;
+- каждый `StateId` существует, принадлежит ровно одному stateful oscillator/noise instruction, и все state slots покрыты;
+- существует ровно одна финальная output instruction с инициализированными src channels, согласованным `OutputLayout` и in-range dedicated outputs;
+- stereo instructions проверяют оба dst/src registers; noise stream является допустимым explicit ID;
 - structural verifier не требует `SourceMap`; origin verifier дополнительно проверяет количество и валидность retained spans в исходной карте;
 - structural verifier хранит только фактически встреченные initialized indices и не выделяет память пропорционально декларированным count-fields;
 - любая повреждённая программа возвращает structured verifier error до dispatch, а не молчаливую тишину или panic.
 
 Правила VM:
 
-- `VmConfig` содержит validated `sample_rate` и `block_size`; последний является maximum block length и включает обязательные размеры `1`, `3`, `64`, `128`, `256`;
-- audio register содержит буфер максимальной длины, выбранной при создании VM; все buffers/registers/state выделяются при создании, arithmetic overflow и Vec capacity limits проверяются до verifier metadata и runtime allocations;
-- `render_into(&mut [f32])` принимает блоки переменной длины `1..=block_size`; пустой блок — no-op без продвижения state/sample index, слишком большой блок — typed error до dispatch;
-- для каждого sample блока instructions исполняются в Vec order, затем VM переходит к следующему sample. Scalar instructions на этапе 3 повторяются для каждого sample без отдельной оптимизации. Это сохраняет fail-fast порядок посемплового interpreter и делает выбор runtime diagnostic независимым от block partition;
+- `VmConfig` содержит validated `sample_rate` и `block_size`; последний является maximum frames и включает обязательные размеры `1`, `3`, `64`, `128`, `256`;
+- audio register содержит буфер максимальной frame length, выбранной при создании VM; все buffers/registers/state выделяются при создании, arithmetic overflow и Vec capacity limits проверяются до verifier metadata и runtime allocations;
+- `render_into(&mut [f32])` принимает mono samples либо interleaved stereo по ADR 0014. Пустой блок — no-op; odd stereo slice и превышение `block_size × channels` — typed error до dispatch;
+- для каждого frame instructions исполняются в Vec order, затем VM переходит к следующему frame. Scalar instructions повторяются на каждом frame без отдельной оптимизации. Это сохраняет fail-fast порядок reference и делает первый runtime diagnostic независимым от block partition;
 - состояние узла индексируется отдельным `StateId`, а не `NodeId` или номером инструкции;
-- `Sine` вызывает production `dsp::Sine` на каждом sample по ADR 0006. Nonfinite frequency возвращает structured VM error с instruction/state/absolute sample index и не меняет phase ошибочного oscillator;
-- финальная `SetOutput` возвращает structured `NonFiniteOutput` с absolute sample index до перехода к следующему sample. Поскольку все bindings уже вычислены для этого sample, сохраняется прежний приоритет frequency errors над output error на том же sample;
-- VM отслеживает absolute zero-based sample index между variable-size calls. После успешного dispatch output register копируется в caller slice;
-- `reset()` сбрасывает registers при необходимости, обязательно возвращает всё node state в начальное состояние и сбрасывает absolute sample index;
+- каждый phase oscillator вызывает свой production DSP transition на каждом frame. Nonfinite frequency возвращает structured VM error с instruction/state/absolute frame index и не меняет phase ошибочного oscillator;
+- `Pan` аналогично сообщает nonfinite position с origin instruction и frame index. `Noise` продвигает explicit SplitMix64 stream один раз на frame;
+- финальная output instruction возвращает structured `NonFiniteOutput` с absolute frame index до перехода к следующему frame. Stereo проверяет left, затем right. Все bindings текущего frame уже вычислены, поэтому прежний приоритет parameter errors над output error сохраняется;
+- VM отслеживает absolute zero-based frame index между variable-size calls. После успешного dispatch dedicated channels копируются в caller slice с interleaving;
+- `reset()` сбрасывает registers при необходимости, возвращает всё node/random state в начальное состояние и сбрасывает absolute frame index;
 - steady-state `render_into` не выделяет память и не обращается к файловой системе, stdout, environment, сети и системным часам;
 - VM не использует размер текущего блока для изменения алгоритма, кроме выбора эквивалентного vectorized/scalar пути в будущем;
 - VM core не импортирует CLI, `render` и не знает о WAV, VST, display, GPIO или конкретном windowing toolkit;
 - любая неподдерживаемая или повреждённая инструкция — ошибка verifier/runtime, не молчаливый fallback.
 
-VM errors не содержат source `Diagnostic`. Production renderer использует retained origins для прежней `E4001` frequency diagnostic; structured nonfinite output он локализует полным span out value. Начиная с этапа 4 frequency diagnostic получает primary в определении и secondary labels из `inlined_from` в порядке inner-to-outer, сохраняя code и sample index. Отсутствие необходимого origin после stripping является явной internal/render error, а не поводом выбрать другой span. Обычный production compile сохраняет origins; для программ без функций CLI diagnostics не меняются.
+VM errors не содержат source `Diagnostic`. Production renderer использует retained origins для `E4001` frequency/position diagnostic; structured nonfinite output он локализует полным span out value. Parameter diagnostic получает primary в определении и secondary labels из `inlined_from` в порядке inner-to-outer, сохраняя code и frame index. Отсутствие необходимого origin после stripping является явной internal/render error, а не поводом выбрать другой span. Обычный production compile сохраняет origins; mono diagnostics прежних программ не меняются.
 
-Renderer выделяет один scratch block вне steady-state loop, разбивает checked `render_samples` на variable chunks и сохраняет прежние protective limit, streaming WAV, PCM16 и atomic publish. Подробная архитектура — ADR 0005.
+Renderer выделяет один interleaved scratch block вне steady-state loop, разбивает checked `render_samples` (frames) на variable chunks с учётом channel count и сохраняет protective limit, streaming WAV, PCM16 и atomic publish. Подробная архитектура — ADR 0005 и 0014.
 
 ### 5.8. Библиотечный facade
 
@@ -895,6 +1027,9 @@ render(program, config, Write)
 10. `0010-real-time-allocation-contract.md` — перед real-time этапом.
 11. `0011-stage-1-parser-limits-and-diagnostics.md`.
 12. `0012-source-map-and-compile-session.md`.
+13. `0013-naive-phase-oscillators.md` — этап 5.
+14. `0014-stereo-output-and-interleaving.md` — этап 5.
+15. `0015-deterministic-noise-splitmix64.md` — этап 5.
 
 ### 5.11. Детерминированная компиляция и случайность
 
@@ -1044,8 +1179,9 @@ sample_index: optional zero-based u64 для runtime diagnostics
 | `E2104` | Compile-time деление на ноль |
 | `E2105` | Нечисловой compile-time `Float` или значение, которое нельзя представить конечным `f32` при lift |
 | `E2106` | Превышен лимит глубины или числа expression visits при инстанцировании пользовательских функций |
+| `E2107` | Finite `noise` seed не является целым в `0..=2^53−1` |
 | `E4000` | Некорректный sample rate, block size или numeric render option |
-| `E4001` | NaN/Inf в сигнале frequency или на выходе |
+| `E4001` | NaN/Inf в frequency/position параметре или на любом output channel |
 | `E4002` | Переполнение длительности, sample count или RIFF/PCM sizes |
 | `E4003` | Превышен protective `max_output_seconds` |
 | `E5000` | Файловая ошибка |
@@ -1068,31 +1204,34 @@ Lexer и parser этапов 1 и 1A завершаются на первой о
 
 Primary `SourceSpan` семантических diagnostics детерминирован:
 
-- `E2000` — identifier повторного top-level binding/function, parameter или local; identifier первого пользовательского definition — secondary. Для функции, повторяющей builtin `sine`, primary — function identifier, source secondary отсутствует, note называет builtin;
+- `E2000` — identifier повторного top-level binding/function, parameter или local; identifier первого пользовательского definition — secondary. Для функции, повторяющей любой builtin descriptor, primary — function identifier, source secondary отсутствует, note называет builtin;
 - `E2001` — unresolved value identifier, включая self/forward reference и function name в value position;
 - `E2102` — unknown/self/forward callee identifier или value binding в callee position; `E2101` — callee identifier известной функции с неверной arity;
-- `E2100` в аргументе — expression аргумента; для user function соответствующая parameter annotation является secondary. При несовместимой обычной аннотации — value expression, annotation — secondary; для запрещённой явной `out: Float` — сама annotation. При несовпадении function result primary — итоговое body expression, return annotation — secondary;
+- `E2100` в аргументе — expression аргумента; для user function соответствующая parameter annotation является secondary. При несовместимой обычной аннотации — value expression, annotation — secondary; для запрещённой явной `out: Float` — сама annotation. Если `out` аннотирован `Sig` или `Stereo`, а значение имеет другой audio type, primary — value expression, annotation — secondary. При несовпадении function result primary — итоговое body expression, return annotation — secondary;
 - `E2104` — zero divisor expression; `E2105` — нечисловой literal/unary/binary expression либо lifted expression, чья checked `f32` conversion переполняется;
-- если `E2104`/`E2105` выявлены конкретизацией вызова, primary остаётся в теле определения, а secondary содержат full call spans активного стека от внутреннего к внешнему;
+- `E2107` — полное seed expression `noise` с finite fractional, negative или out-of-range значением; если ошибка выявлена конкретизацией, primary остаётся в теле определения;
+- если `E2104`/`E2105`/`E2107` выявлены конкретизацией вызова, primary остаётся в теле определения, а secondary содержат full call spans активного стека от внутреннего к внешнему;
 - `E2106` — полный direct/desugared pipeline call, чья конкретизация превысила depth/node budget; активные outer calls являются secondary в порядке inner-to-outer;
 - `E2103`, `E4002`, `E4003` — duration literal без optional minus;
-- `E4001` при нечисловом output — value expression `out`; при нечисловой frequency — expression соответствующего аргумента `sine`, включая expression в теле функции. Runtime origin добавляет secondary full call spans в порядке inner-to-outer. Оба случая содержат фактический zero-based `sample_index`.
+- `E4001` при нечисловом output channel — value expression `out`; при нечисловой frequency — expression соответствующего аргумента любого oscillator; при нечисловой pan position — position expression. Runtime origin добавляет secondary full call spans в порядке inner-to-outer. Все случаи содержат фактический zero-based `sample_index`, который начиная с этапа 5 означает frame index. Stereo output проверяется left перед right.
 
 `E4003` проверяется после успешной компиляции и до записи WAV header. `E4000` и файловая `E5000` являются source-free host/configuration errors; для них не создаётся фиктивный span. Точные сообщения не закрепляются, но codes, spans, sample index и fail-fast порядок стабильны.
 
 ### 6.3. WAV
 
-Первый backend записывает:
+Backend записывает:
 
 - RIFF/WAVE с базовым 44-byte header;
 - PCM, format tag `1`;
-- один канал;
-- 16 бит на семпл;
+- один канал для `out: Sig` либо два канала для `out: Stereo`;
+- 16 бит на семпл канала;
 - little-endian;
 - sample rate из `RenderConfig`;
-- количество семплов заранее вычислено из `render`;
+- количество frames заранее вычислено из `render`;
 - потоковая запись без хранения всего аудио в памяти;
-- `samples × 2`, `36 + data_size` и `data_size` вычисляются с checked arithmetic до записи и обязаны помещаться в соответствующие `u32` RIFF fields; overflow — `E4002` с primary span duration.
+- `frames × channels × 2`, `36 + data_size` и `data_size` вычисляются checked до записи и обязаны помещаться в соответствующие `u32` RIFF fields; overflow — `E4002` с primary span duration.
+
+Header использует channels `1/2`, block align `channels × 2` и byte rate `sample_rate × channels × 2`. Stereo PCM interleaving — `L0,R0,L1,R1,...`; каждый канал квантуется независимо. Mono header и PCM bytes прежних программ не меняются. Channel count выбирается только явным output type, а не длиной данных.
 
 Преобразование `f32 → i16`:
 
@@ -1102,7 +1241,7 @@ Primary `SourceSpan` семантических diagnostics детерминир
 4. преобразование в `i16`;
 5. запись двух little-endian байтов.
 
-Dithering отсутствует. Стерео и другие форматы добавляются отдельным контрактом. Тесты заголовка используют независимо рассчитанные байты, а не вызов того же WAV-writer для получения expected. Отдельная low-level quantization function возвращает typed nonfinite error, а render преобразует его в `E4001` с source span/sample index.
+Dithering отсутствует. Форматы кроме mono/stereo PCM16 добавляются отдельным контрактом. Тесты заголовка и interleaving используют независимо рассчитанные байты, а не вызов того же WAV-writer для получения expected. Отдельная low-level quantization function возвращает typed nonfinite error, а render преобразует его в `E4001` с source span/frame index.
 
 ### 6.4. RenderConfig
 
@@ -1771,7 +1910,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 4 — Функции, блоки и pipeline
 
-**Статус:** завершён 2026-11-21 по спецификации 0.5.0. Принят ADR 0007; parser/sema/lowering, lexical scopes, eager roots, sharing/fresh state, call origins, per-call Float checks и expansion limits реализованы. Все 208 integration tests, allocation harness, общий набор и реальные CLI сценарии проходят. Контракт, историческая подготовка и финальная приёмка: `docs/development/stages/stage-04-functions-blocks-pipeline.md`. Этап 5 не начат.
+**Статус:** завершён 2026-11-21 по спецификации 0.5.0. Принят ADR 0007; parser/sema/lowering, lexical scopes, eager roots, sharing/fresh state, call origins, per-call Float checks и expansion limits реализованы. Все 208 integration tests, allocation harness, общий набор и реальные CLI сценарии проходят. Контракт, историческая подготовка и финальная приёмка: `docs/development/stages/stage-04-functions-blocks-pipeline.md`. На момент завершения этапа 4 этап 5 ещё не был начат; его текущий статус зафиксирован ниже отдельно.
 
 **Цель:** функциональная композиция графов с локальным выводом типов.
 
@@ -1809,34 +1948,40 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 ### Этап 5 — Базовые осцилляторы и стерео
 
+**Статус:** завершён 2026-11-22 по спецификации 0.6.0. Приняты ADR 0013/0014/0015; реализованы и проверены точные waveform formulas, arithmetic sugar, явный `Stereo`, interleaved frames, equal-power pan и explicit-seed SplitMix64 noise. Все временные заглушки удалены, 239 integration tests и allocation harness проходят, полный DoD выполнен. Контракт, историческая подготовка и финальная приёмка: `docs/development/stages/stage-05-basic-oscillators-stereo.md`.
+
 **Цель:** превратить Beep в небольшой офлайн-синтезатор, не добавляя пока события и GUI.
 
 **Production, отдельными маленькими шагами:**
 
-- `phasor`;
-- наивные `saw`, `square`, `triangle` с явно задокументированным aliasing;
-- `gain` как именованный builtin или сахар над умножением;
-- stereo output с независимым channel contract;
-- `mix`, `pan` после фиксации сигнатур;
-- детерминированный `noise` только после ADR о seed, алгоритме, stable `RandomStreamId` и numeric vectors; stream identity не зависит от NodeId, SourceId, memory address, inlining или optimization;
-- PolyBLEP или другой anti-aliasing как отдельный подэтап, не скрытая замена наивного узла.
+- 5A: `phasor`, наивные rising `saw`, 50% `square`, `triangle` с формулами §4.8.1 и явно задокументированным aliasing;
+- 5A: `gain(input, amount)` и `mix(a, b, balance)` как arithmetic sugar с one-time args/sharing;
+- 5B: явный `Stereo`, `stereo(left, right)`, stereo output и interleaved channel contract по §4.8.2;
+- 5B: `pan(input, position)` с equal-power law и clamp position;
+- 5C: `noise(seed)` после ADR 0015, explicit `RandomStreamId`, SplitMix64, `E2107` и независимые numeric vectors;
+- каждый новый op получает origins, verifier rules, capability/resource metadata, reference/differential/property/reset/block coverage;
+- PolyBLEP или другой anti-aliasing — только отдельный последующий подэтап, не скрытая замена наивного узла.
 
 **Агенту можно:**
 
-- подготовить waveform vectors вне discontinuities;
-- проверять период, symmetry, DC offset, peak и RMS;
-- подготовить spectral tests для aliasing/PolyBLEP;
-- расширить reference generator;
-- проверить channel order и WAV interleaving.
+- подготовить waveform vectors на discontinuities и вне их;
+- проверять период, symmetry, DC offset, peak и RMS в дополнение к посемпловым tests;
+- подготовить spectral tests для будущего aliasing/PolyBLEP подэтапа без реализации AA;
+- расширить independent reference и fixed-seed generator;
+- проверить channel order, frame partitions и WAV interleaving;
+- подготовить SplitMix64/seed/RandomStreamId vectors и explicit verifier corruption cases.
 
-**DoD для каждого узла:**
+**DoD:**
 
-- сигнатура и начальная фаза зафиксированы;
-- есть аналитические тесты и block-invariance;
-- reset корректен;
-- отрицательная/нулевая/слишком высокая частота обработана по контракту;
-- reference и production различаются только в пределах допуска;
-- наивный и anti-aliased вариант не выдаются за один и тот же алгоритм.
+- сигнатуры, formulas и начальные состояния §4.8.1–§4.8.3 реализованы и проверены аналитически;
+- каждый stateful узел проходит block sizes `1/3/64/128/256`, variable partitions, reset, zero/negative/high/nonfinite input cases по контракту;
+- gain/mix не дублируют stateful args; function sharing/fresh state и origins сохраняются;
+- `Stereo` type/out, pan law, left-before-right errors, interleaved VM/WAV и checked RIFF sizes работают;
+- noise seed boundaries/`E2107`, stream identity, independent state и fixed SplitMix64 vectors проходят;
+- reference и production совпадают посемплово в пределах допуска на согласованном corpus;
+- прежние 208 integration tests, mono WAV/PCM/CLI/atomic/determinism и allocation contracts сохраняются;
+- наивный и anti-aliased вариант не выдаются за один и тот же алгоритм; AA не входит в текущий production diff;
+- все временные заглушки удалены, общий набор и real CLI mono/stereo/noise scenarios проходят, полный stage DoD выполнен.
 
 ### Этап 6 — Фильтры, delay и feedback
 
@@ -2148,12 +2293,24 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 2. Область `SourceId` уточнена в спецификации 0.2.1 и ADR 0012: IDs остаются детерминированными map-local индексами и используются только с исходной картой; глобальный provenance не добавляется.
 3. Этап 2 завершён 2026-11-20 по спецификации 0.3.0: resolver/type checker, Typed AST/lifts, наивный `sine` interpreter, streaming WAV и CLI реализованы; 121 integration test, общий набор и ручная Beep/atomic/determinism приёмка проходят. Исторический отчёт подготовки и финальная приёмка находятся в `docs/development/stages/stage-02-types-interpreter-wav.md`.
 4. Этап 3 завершён 2026-11-21 по ADR 0004/0005, включая benchmark baseline с полной конфигурацией §10.2 в stage document. Persistence не создаётся; если появится отдельной задачей, format/VM version обязательны.
-5. Этап 4 завершён 2026-11-21 по спецификации 0.5.0 и ADR 0007: parser/sema/lowering реализованы, все временные заглушки удалены, 208 integration tests и полный DoD проходят. Этап 5 не начат и требует отдельной явной задачи.
-6. Reference, block partitions, reset, origins, verifiers, determinism и differential generation уже проверены для прежнего языка и расширяются функциями на этапе 4. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
-7. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
-8. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
+5. Этап 4 завершён 2026-11-21 по спецификации 0.5.0 и ADR 0007: parser/sema/lowering реализованы, все временные заглушки удалены, 208 integration tests и полный DoD проходят.
+6. Этап 5 завершён 2026-11-22 по спецификации 0.6.0 и ADR 0013–0015: test-facing каркас, реализация 5A/5B/5C, review-исправления, 239 integration tests, allocation harness, общий набор и реальные CLI/atomic сценарии проходят. PolyBLEP/AA и этап 6 не начинались.
+7. Reference, block partitions, reset, origins, verifiers, determinism и differential generation уже проверены для прежнего языка и расширяются новыми узлами на этапе 5. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
+8. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
+9. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.6.0 — 2026-11-21
+
+- Изменение: начат этап 5 и детализированы `phasor`, naive rising `saw`/`square`/`triangle`, `gain`/linear `mix`, явный `Stereo`, `stereo`, equal-power `pan`, interleaved mono/stereo VM/WAV output и `noise(seed)` со SplitMix64/`RandomStreamId`. Добавлены `E2107`, `Multichannel`, явный `OutputLayout`, ADR 0013/0014/0015 и stage/task documents.
+- Причина: устранить roadmap-неоднозначности в сигнатурах, waveform formulas, phase/reset/errors, channel units/layout, seed validation и stable random identity до ручной production-реализации.
+- Затронутые контракты: §0, §4.8.1–§4.8.3, §5.5–§5.8, §6.2–§6.5, §7, §9 (этап 5), §10–§14; нестабильные Rust type/IR/bytecode/VM/WAV representations расширяются.
+- Совместимость: прежний syntax/types без `Stereo`, diagnostic codes/spans/frame indices, mono CLI, PCM16 conversion и mono WAV bytes не меняются. Сознательный break: пользовательские функции с именами новых builtins, включая stage-4 `mix`, теперь отклоняются `E2000` и требуют переименования; repository fixture переведён на `mix_signals` без изменения audio expected. `E2107` не переиспользует существующий код. Naive oscillators не заменяются anti-aliased алгоритмом. Подготовительные временные заглушки и ожидаемые красные tests не являются работающим этапом или завершением.
+- Новые/изменённые тесты: analytic waveform/gain/mix vectors, Stereo typing/layout/pan, VM frame partitions/reset/channel errors, manual stereo WAV bytes, seed boundaries/per-call diagnostics, fixed SplitMix64 vectors, reference/differential/properties/verifier corruption/allocation/compatibility. Фактические counts фиксируются после запусков.
+- Подготовительная приёмка 2026-11-22: добавлены 28 integration tests и девять fixtures; 16 новых tests проходят, 12 ожидаемо достигают восьми разрешённых заглушек. Все 208 прежних tests и allocation harness проходят. Aggregate 236 integration + 1 allocation test: 225 passed, 12 expected failed, 0 ignored. Compile/static checks, manual stereo VM/WAV и zero-allocation scenarios успешны; production-алгоритмы и real stage-5 CLI не проверены, этап не завершён.
+- Production-приёмка 2026-11-22: все восемь заглушек удалены, реализация 5A/5B/5C и полный DoD завершены. Review-исправления согласовали вычисление compile-time noise seed между lowering/verifier и исключили повреждение каналов при stereo register aliasing. Финальный corpus — 239 integration tests + 1 allocation test, 0 failed, 0 ignored; общий набор, generated differential/properties, real CLI mono/stereo/noise, cross-process determinism и atomic runtime-error сценарии проходят. Anti-aliasing и этап 6 не начинались.
+- Связанные ADR: `0013`, `0014`, `0015`; сохраняются `0001`–`0007`, `0009`, `0011`, `0012`.
 
 ### 0.5.0 — 2026-11-21
 

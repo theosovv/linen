@@ -4,6 +4,6 @@ mod verify;
 
 pub use codegen::codegen;
 pub use instruction::{
-    AudioRegister, BinaryOp, Bytecode, Instruction, Operand, ScalarRegister, StateId,
+    AudioRegister, BinaryOp, Bytecode, Instruction, Operand, OutputLayout, ScalarRegister, StateId,
 };
 pub use verify::{BytecodeVerifyError, verify, verify_origins};

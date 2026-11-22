@@ -16,10 +16,24 @@ impl NodeId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RandomStreamId(u64);
+
+impl RandomStreamId {
+    pub const fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+
+    pub const fn seed(self) -> u64 {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValueType {
     Float,
     Sig,
+    Stereo,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +75,16 @@ pub enum NodeOp {
     Mul(NodeId, NodeId),
     Div(NodeId, NodeId),
     Sine(NodeId),
+    Phasor(NodeId),
+    Saw(NodeId),
+    Square(NodeId),
+    Triangle(NodeId),
+    Stereo(NodeId, NodeId),
+    Pan(NodeId, NodeId),
+    Noise {
+        seed: NodeId,
+        stream: RandomStreamId,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,6 +107,18 @@ impl NodeOp {
             state_slots: 0,
             state_bytes: 0,
         };
+        let stereo = ResourceModel {
+            scalar_registers: 0,
+            audio_registers: 2,
+            state_slots: 0,
+            state_bytes: 0,
+        };
+        let phase = ResourceModel {
+            scalar_registers: 0,
+            audio_registers: 1,
+            state_slots: 1,
+            state_bytes: size_of::<f64>(),
+        };
         let resources = match self {
             Self::ConstFloat(_) => scalar,
             Self::LiftFloatToSig(_) => audio,
@@ -90,18 +126,29 @@ impl NodeOp {
                 match result_type {
                     ValueType::Float => scalar,
                     ValueType::Sig => audio,
+                    ValueType::Stereo => stereo,
                 }
             }
-            Self::Sine(_) => ResourceModel {
+            Self::Sine(_)
+            | Self::Phasor(_)
+            | Self::Saw(_)
+            | Self::Square(_)
+            | Self::Triangle(_) => phase,
+            Self::Stereo(..) | Self::Pan(..) => stereo,
+            Self::Noise { .. } => ResourceModel {
                 scalar_registers: 0,
                 audio_registers: 1,
                 state_slots: 1,
-                state_bytes: size_of::<f64>(),
+                state_bytes: 2 * size_of::<u64>(),
             },
+        };
+        let capability = match self {
+            Self::Stereo(..) | Self::Pan(..) => RuntimeCapability::Multichannel,
+            _ => RuntimeCapability::CoreAudio,
         };
 
         NodeDescriptor {
-            capability: RuntimeCapability::CoreAudio,
+            capability,
             resources,
         }
     }
@@ -113,4 +160,29 @@ pub struct Graph {
     pub roots: Vec<NodeId>,
     pub output: NodeId,
     pub render_samples: u64,
+}
+
+pub(crate) fn const_float_value(nodes: &[Node], id: NodeId) -> Option<f64> {
+    let node = nodes.get(id.index())?;
+    if node.result_type != ValueType::Float {
+        return None;
+    }
+
+    match &node.op {
+        NodeOp::ConstFloat(value) => Some(*value),
+        NodeOp::Neg(input) => Some(-const_float_value(nodes, *input)?),
+        NodeOp::Add(left, right) => {
+            Some(const_float_value(nodes, *left)? + const_float_value(nodes, *right)?)
+        }
+        NodeOp::Sub(left, right) => {
+            Some(const_float_value(nodes, *left)? - const_float_value(nodes, *right)?)
+        }
+        NodeOp::Mul(left, right) => {
+            Some(const_float_value(nodes, *left)? * const_float_value(nodes, *right)?)
+        }
+        NodeOp::Div(left, right) => {
+            Some(const_float_value(nodes, *left)? / const_float_value(nodes, *right)?)
+        }
+        _ => None,
+    }
 }

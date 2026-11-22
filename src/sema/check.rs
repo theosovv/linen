@@ -51,13 +51,16 @@ pub fn check_program(
                     return Err(duplicate_declaration(&function.name, first_span));
                 }
 
-                if function.name.name == "sine" {
+                if let Some(builtin) = builtin_by_name(&function.name.name) {
                     return Err(Diagnostic::error(
                         ErrorCode::DuplicateBinding,
-                        "function `sine` conflicts with a builtin",
+                        format!("function `{}` conflicts with a builtin", function.name.name),
                         DiagnosticLabel::new(
                             function.name.span,
-                            "`sine` is already defined as a builtin function",
+                            format!(
+                                "`{}` is already defined as a builtin function",
+                                builtin.name
+                            ),
                         ),
                     )
                     .with_note("user-defined functions cannot replace builtins"));
@@ -135,7 +138,16 @@ pub fn check_program(
             ),
         )
     })?;
-    let render = check_render(&program.render, sample_rate)?;
+    let output_type = symbols
+        .get(output)
+        .expect("the output binding must have a stored symbol")
+        .ty;
+    let channels = match output_type {
+        Type::Sig => 1,
+        Type::Stereo => 2,
+        Type::Float => unreachable!("output Float receives an explicit mono lift"),
+    };
+    let render = check_render(&program.render, sample_rate, channels)?;
 
     Ok(TypedProgram {
         declarations,
@@ -171,6 +183,7 @@ fn check_function(
             let ty = match parameter.annotation.kind {
                 TypeName::Float => Type::Float,
                 TypeName::Sig => Type::Sig,
+                TypeName::Stereo => Type::Stereo,
             };
             let id = symbols.define(parameter.name.name.clone(), ty, parameter.name.span);
 
@@ -209,6 +222,7 @@ fn check_function(
         let result_type = match function.result.kind {
             TypeName::Float => Type::Float,
             TypeName::Sig => Type::Sig,
+            TypeName::Stereo => Type::Stereo,
         };
         let body = coerce_to_type(body, result_type, Some(function.result.span), constants)?;
 
@@ -338,6 +352,7 @@ fn apply_local_annotation(
     let expected = match annotation.kind {
         TypeName::Float => Type::Float,
         TypeName::Sig => Type::Sig,
+        TypeName::Stereo => Type::Stereo,
     };
 
     coerce_to_type(value, expected, Some(annotation.span), constants)
@@ -525,6 +540,9 @@ fn check_expression(
             let operand =
                 check_expression(operand, scopes, symbols, constants, functions, evaluator)?;
             let ty = operand.ty;
+            if ty == Type::Stereo {
+                return Err(type_mismatch(operand.span, Type::Sig, Type::Stereo, None));
+            }
             let result = TypedExpr {
                 kind: TypedExprKind::Unary {
                     operator: *operator,
@@ -545,6 +563,12 @@ fn check_expression(
         } => {
             let left = check_expression(left, scopes, symbols, constants, functions, evaluator)?;
             let right = check_expression(right, scopes, symbols, constants, functions, evaluator)?;
+            if left.ty == Type::Stereo {
+                return Err(type_mismatch(left.span, Type::Sig, Type::Stereo, None));
+            }
+            if right.ty == Type::Stereo {
+                return Err(type_mismatch(right.span, Type::Sig, Type::Stereo, None));
+            }
             let ty = if left.ty == Type::Sig || right.ty == Type::Sig {
                 Type::Sig
             } else {
@@ -602,19 +626,28 @@ fn apply_declaration_type(
     constants: &HashMap<BindingId, f64>,
 ) -> Result<TypedExpr, Diagnostic> {
     if declaration.name.name == "out" {
-        if let Some(annotation) = &declaration.annotation
-            && annotation.kind != TypeName::Sig
-        {
-            return Err(Diagnostic::error(
-                ErrorCode::TypeMismatch,
-                "`out` must have type `Sig`, not `Float`",
-                DiagnosticLabel::new(
-                    annotation.span,
-                    "remove this annotation or change it to `Sig`",
-                ),
-            ));
+        if let Some(annotation) = &declaration.annotation {
+            let expected = match annotation.kind {
+                TypeName::Float => {
+                    return Err(Diagnostic::error(
+                        ErrorCode::TypeMismatch,
+                        "`out` must have type `Sig` or `Stereo`, not `Float`",
+                        DiagnosticLabel::new(
+                            annotation.span,
+                            "remove this annotation or change it to `Sig` or `Stereo`",
+                        ),
+                    ));
+                }
+                TypeName::Sig => Type::Sig,
+                TypeName::Stereo => Type::Stereo,
+            };
+            return coerce_to_type(value, expected, Some(annotation.span), constants);
         }
-        return coerce_to_type(value, Type::Sig, None, constants);
+
+        return match value.ty {
+            Type::Float => coerce_to_type(value, Type::Sig, None, constants),
+            Type::Sig | Type::Stereo => Ok(value),
+        };
     }
 
     apply_local_annotation(declaration, value, constants)
@@ -758,10 +791,21 @@ impl ExpansionEvaluator {
                 );
                 Err(self.with_call_chain(diagnostic, expression.span))
             }
-            TypedExprKind::BuiltinCall { arguments, .. } => {
+            TypedExprKind::BuiltinCall {
+                builtin, arguments, ..
+            } => {
                 self.charge_node()?;
-                for argument in arguments {
-                    self.evaluate_expression(argument, constants, functions, values)?;
+                let mut noise_seed = None;
+                for (index, argument) in arguments.iter().enumerate() {
+                    let value = self.evaluate_expression(argument, constants, functions, values)?;
+                    if *builtin == super::BuiltinId::NOISE && index == 0 {
+                        noise_seed = value;
+                    }
+                }
+                if *builtin == super::BuiltinId::NOISE {
+                    let seed_span = arguments[0].span;
+                    validate_noise_seed(seed_span, noise_seed)
+                        .map_err(|diagnostic| self.with_call_chain(diagnostic, seed_span))?;
                 }
                 Ok(None)
             }
@@ -983,6 +1027,32 @@ impl ExpansionEvaluator {
     }
 }
 
+fn validate_noise_seed(span: SourceSpan, seed: Option<f64>) -> Result<(), Diagnostic> {
+    let Some(seed) = seed else {
+        return Ok(());
+    };
+
+    if !seed.is_finite() {
+        return Err(invalid_float(span));
+    }
+
+    let in_range = (0.0..=9_007_199_254_740_991.0).contains(&seed);
+    let is_integer = seed.fract() == 0.0;
+
+    if !in_range || !is_integer {
+        return Err(Diagnostic::error(
+            ErrorCode::InvalidNoiseSeed,
+            "invalid noise seed",
+            DiagnosticLabel::new(
+                span,
+                "expected compile-time integer in 0..=9007199254740991 (2^53 - 1)",
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 fn invalid_float(span: SourceSpan) -> Diagnostic {
     Diagnostic::error(
         ErrorCode::InvalidFloat,
@@ -1002,7 +1072,11 @@ fn invalid_lifted_float(span: SourceSpan) -> Diagnostic {
     )
 }
 
-fn check_render(render: &RenderDecl, sample_rate: u32) -> Result<TypedRender, Diagnostic> {
+fn check_render(
+    render: &RenderDecl,
+    sample_rate: u32,
+    channels: u64,
+) -> Result<TypedRender, Diagnostic> {
     let mut duration_seconds = match render.duration.unit {
         crate::syntax::DurationUnit::Seconds => render.duration.value,
         crate::syntax::DurationUnit::Milliseconds => render.duration.value / 1_000.0,
@@ -1025,8 +1099,8 @@ fn check_render(render: &RenderDecl, sample_rate: u32) -> Result<TypedRender, Di
         return Err(invalid_duration(render, sample_rate));
     }
 
-    const MAX_WAV_SAMPLES: u64 = (u32::MAX as u64 - 36) / 2;
-    if rounded >= 18_446_744_073_709_551_616.0 || rounded > MAX_WAV_SAMPLES as f64 {
+    let max_wav_frames = (u32::MAX as u64 - 36) / (2 * channels);
+    if rounded >= 18_446_744_073_709_551_616.0 || rounded > max_wav_frames as f64 {
         return Err(render_overflow(render));
     }
 

@@ -7,6 +7,7 @@ use crate::{
 pub enum Type {
     Float,
     Sig,
+    Stereo,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -40,6 +41,15 @@ pub struct BuiltinId(usize);
 
 impl BuiltinId {
     pub const SINE: Self = Self(0);
+    pub const PHASOR: Self = Self(1);
+    pub const SAW: Self = Self(2);
+    pub const SQUARE: Self = Self(3);
+    pub const TRIANGLE: Self = Self(4);
+    pub const GAIN: Self = Self(5);
+    pub const MIX: Self = Self(6);
+    pub const STEREO: Self = Self(7);
+    pub const PAN: Self = Self(8);
+    pub const NOISE: Self = Self(9);
 
     pub const fn index(self) -> usize {
         self.0
