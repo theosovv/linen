@@ -78,6 +78,8 @@ pub enum NodeOp {
     Phasor(NodeId),
     Saw(NodeId),
     Square(NodeId),
+    SawPolyblep(NodeId),
+    SquarePolyblep(NodeId),
     Triangle(NodeId),
     Stereo(NodeId, NodeId),
     Pan(NodeId, NodeId),
@@ -133,6 +135,8 @@ impl NodeOp {
             | Self::Phasor(_)
             | Self::Saw(_)
             | Self::Square(_)
+            | Self::SawPolyblep(_)
+            | Self::SquarePolyblep(_)
             | Self::Triangle(_) => phase,
             Self::Stereo(..) | Self::Pan(..) => stereo,
             Self::Noise { .. } => ResourceModel {

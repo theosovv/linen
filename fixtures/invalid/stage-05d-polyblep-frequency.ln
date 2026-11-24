@@ -1,0 +1,3 @@
+let zero = sine(0);
+let out = saw_polyblep(zero / zero);
+render 1ms;

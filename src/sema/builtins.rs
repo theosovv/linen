@@ -87,7 +87,7 @@ const fn phase_builtin(id: BuiltinId, name: &'static str) -> BuiltinDescriptor {
     }
 }
 
-pub const BUILTINS: [BuiltinDescriptor; 10] = [
+pub const BUILTINS: [BuiltinDescriptor; 12] = [
     phase_builtin(BuiltinId::SINE, "sine"),
     phase_builtin(BuiltinId::PHASOR, "phasor"),
     phase_builtin(BuiltinId::SAW, "saw"),
@@ -168,6 +168,8 @@ pub const BUILTINS: [BuiltinDescriptor; 10] = [
         },
         documentation_name: "noise",
     },
+    phase_builtin(BuiltinId::SAW_POLYBLEP, "saw_polyblep"),
+    phase_builtin(BuiltinId::SQUARE_POLYBLEP, "square_polyblep"),
 ];
 
 pub fn builtin_descriptor(id: BuiltinId) -> Option<&'static BuiltinDescriptor> {

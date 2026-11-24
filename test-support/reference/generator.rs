@@ -114,3 +114,14 @@ pub fn stage5_noise_program(seed: u64) -> String {
         seed + 1
     )
 }
+
+pub fn stage5d_polyblep_program(seed: u64) -> String {
+    let mut rng = FixedRng::new(seed);
+    let saw_frequency = 700 + rng.below(12) * 110;
+    let square_frequency = 500 + rng.below(10) * 130;
+    let balance = rng.below(5);
+
+    format!(
+        "let saw = saw_polyblep({saw_frequency});\nlet square = square_polyblep({square_frequency});\nlet out = gain(mix(saw, square, 0.{balance}), 0.1);\nrender 1ms;\n"
+    )
+}

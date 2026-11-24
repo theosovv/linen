@@ -105,6 +105,30 @@ fn lower_function_call(
     result
 }
 
+fn lower_polyblep_builtin(
+    _value: &TypedExpr,
+    builtin: BuiltinId,
+    arguments: &[TypedExpr],
+    program: &TypedProgram,
+    lowering: &mut Lowering,
+) -> NodeId {
+    assert_eq!(
+        arguments.len(),
+        1,
+        "PolyBLEP oscillator arity must be checked before lowering"
+    );
+
+    let frequency_expression = &arguments[0];
+    let frequency = lower_expr(frequency_expression, program, lowering);
+    let op = match builtin {
+        BuiltinId::SAW_POLYBLEP => NodeOp::SawPolyblep(frequency),
+        BuiltinId::SQUARE_POLYBLEP => NodeOp::SquarePolyblep(frequency),
+        _ => panic!("non-PolyBLEP builtin passed to PolyBLEP lowering"),
+    };
+
+    push_node(lowering, op, ValueType::Sig, frequency_expression.span)
+}
+
 fn lower_builtin(
     value: &TypedExpr,
     builtin: BuiltinId,
@@ -319,6 +343,9 @@ fn lower_builtin(
                 ValueType::Sig,
                 value.span,
             )
+        }
+        BuiltinId::SAW_POLYBLEP | BuiltinId::SQUARE_POLYBLEP => {
+            lower_polyblep_builtin(value, builtin, arguments, program, lowering)
         }
         _ => panic!("unknown builtin ID {}", builtin.index()),
     }

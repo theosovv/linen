@@ -137,6 +137,8 @@ fn for_each_input(op: &NodeOp, mut visit: impl FnMut(NodeId)) {
         | NodeOp::Phasor(input)
         | NodeOp::Saw(input)
         | NodeOp::Square(input)
+        | NodeOp::SawPolyblep(input)
+        | NodeOp::SquarePolyblep(input)
         | NodeOp::Triangle(input)
         | NodeOp::Neg(input) => visit(*input),
         NodeOp::Add(left, right)
@@ -205,6 +207,8 @@ pub fn verify(graph: &Graph, sources: &SourceMap) -> Result<(), IrVerifyError> {
             | NodeOp::Phasor(frequency)
             | NodeOp::Saw(frequency)
             | NodeOp::Square(frequency)
+            | NodeOp::SawPolyblep(frequency)
+            | NodeOp::SquarePolyblep(frequency)
             | NodeOp::Triangle(frequency) => {
                 expect_input(graph, node, *frequency, ValueType::Sig)?;
                 expect_result(node, ValueType::Sig)?;

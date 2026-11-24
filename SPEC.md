@@ -3,7 +3,7 @@
 > Единый источник правды для разработки с ИИ-агентом. Любое изменение скоупа, архитектуры, синтаксиса, семантики и контрактов — сначала в этот документ, потом в код.
 > Архитектурные решения дополнительно фиксируются в `docs/adr/`.
 
-- Версия спецификации: 0.6.0
+- Версия спецификации: 0.7.0
 - Дата: 2026-11-22
 - Рабочее название: **linen**
 - Репозиторий: `linen`
@@ -12,7 +12,7 @@
 - Основной язык реализации: **Rust**
 - Характер проекта: исследовательский некоммерческий проект для собственной разработки без дедлайна
 - Способ разработки: архитектура и основной код — вручную; ИИ-агенты — тесты, тестовые генераторы, разрешённый бойлерплейт и ревью
-- Состояние реализации: этапы 0, 1, 1A, 2, 3, 4 и 5 завершены. По спецификации 0.6.0 реализованы naive phase oscillators, arithmetic builtins, `Stereo`/`pan`, interleaved VM/WAV и deterministic noise; все 239 integration tests, allocation harness, общий набор и реальные CLI-сценарии проходят. PolyBLEP и другой anti-aliasing не входят в завершённый этап
+- Состояние реализации: этапы 0, 1, 1A, 2, 3, 4, 5 и корректирующий подэтап 5D завершены. По спецификации 0.7.0 реализованы naive phase oscillators, arithmetic builtins, `Stereo`/`pan`, interleaved VM/WAV, deterministic noise и отдельные `saw_polyblep`/`square_polyblep`; прежние naive samples сохранены. Все 254 integration + 2 allocation tests, общий набор и реальные CLI check/run/WAV/atomic/repeated-process сценарии проходят
 
 ## 0. Как читать документ
 
@@ -609,6 +609,61 @@ next_sample:
 
 Используются верхние 24 бита результата; output находится в `[-1, 1)`. Один transition выполняется на frame независимо от block/channel layout. IR хранит checked constant seed input и `RandomStreamId`; verifier проверяет их согласованность, а bytecode сохраняет stream ID. Noise требует один audio register, один state slot и state для initial/current `u64`; capability — `CoreAudio`. Системный random и скрытый seed в `RenderConfig` запрещены. Точный контракт и vectors — ADR 0015.
 
+### 4.8.4. Явные PolyBLEP-осцилляторы — корректирующий подэтап 5D
+
+Подэтап 5D добавляет два algorithm-specific builtins:
+
+```text
+saw_polyblep(freq: Sig): Sig
+square_polyblep(freq: Sig): Sig
+```
+
+Они не заменяют naive `saw`/`square`, не меняют `sine`/`phasor`/`triangle` и не управляются глобальным `RenderConfig` или общим algorithm selector. Название называет конкретный алгоритм и не обещает идеальный band-limit. Другие anti-aliasing algorithms требуют отдельной спецификации и ADR. Будущая явно импортируемая stdlib может предоставлять обёртки и композиции; modules/imports/stdlib в 5D не реализуются. Новый низкоуровневый builtin допускается только после отдельного обоснования, почему алгоритм нельзя разумно выразить существующим языком и почему ему нужны собственные VM state/codegen/performance.
+
+Оба узла хранят независимую phase `f64` в периодах с начальным значением `0.0`. Frequency проверяется до output/update; NaN/Inf дают существующую `E4001` с primary frequency expression, zero-based frame index и call origins, не меняя phase. Для конечной frequency все промежуточные вычисления коррекции используют `f64`:
+
+```text
+phase_step = f64(freq) / sample_rate
+dt = abs(phase_step)
+t = phase                              # [0, 1)
+
+if dt == 0 or dt > 0.5:
+    B(t, dt) = 0
+else if t < dt:
+    x = t / dt
+    B(t, dt) = 2*x - x*x - 1
+else if t > 1 - dt:
+    x = (t - 1) / dt
+    B(t, dt) = x*x + 2*x + 1
+else:
+    B(t, dt) = 0
+```
+
+Сравнения `t < dt` и `t > 1 - dt` строгие. `dt == 0.5` использует PolyBLEP; `dt == 0` и `dt > 0.5` явно отключают коррекцию и используют naive waveform на текущей phase без runtime-ошибки. Это предотвращает перекрытие двухточечных зон коррекции выше Nyquist и не является скрытым fallback.
+
+Формулы output до одного преобразования результата в `f32`:
+
+```text
+saw_naive = 2*t - 1
+saw_polyblep = saw_naive - B(t, dt)
+
+square_naive = +1, если t < 0.5; иначе -1
+square_shifted = t + 0.5, если t < 0.5; иначе t - 0.5
+square_polyblep = square_naive + B(t, dt) - B(square_shifted, dt)
+```
+
+Shifted phase использует именно ветвь, а не `(t + 0.5).rem_euclid(1.0)`: при `t` чуть ниже `0.5` сумма в `f64` может округлиться до `1.0`; в этом случае применяется правая ветвь `B(1.0, dt)`, без преждевременного перехода к нулю и противоположной поправки.
+
+После вычисления output phase обновляется signed величиной независимо от коррекции:
+
+```text
+phase = (phase + phase_step).rem_euclid(1.0)
+```
+
+Отрицательная frequency меняет направление phase update, но ширина коррекции использует `abs(phase_step)`. Нулевая frequency повторяет naive waveform текущей phase; в исходном состоянии это `-1` для saw и `+1` для square. Первый sample с ненулевой `abs(freq) <= sample_rate/2` равен `0` для обоих новых узлов. Exactly-Nyquist использует PolyBLEP, above-Nyquist output совпадает с соответствующим naive waveform на той же phase.
+
+Каждый вызов получает fresh state по общим function rules, shared binding сохраняет один узел, `reset()` возвращает phase к нулю. Каждый узел требует один audio register, один state slot и одну `f64` phase; capability — `CoreAudio`. Дополнительные tables, buffers, delay, latency и steady-state allocations отсутствуют. Origin узла — frequency expression с inner-to-outer call chain. Точная архитектура, граница будущей stdlib и spectral acceptance — ADR 0016.
+
 ### 4.9. Единицы измерения
 
 `Hz`, `Seconds`, `Samples` рассматриваются как будущие номинальные типы. Полноценная dimensional analysis в ближайшие этапы не входит. До отдельного ADR пользовательские частоты и время используют `Float`; суффиксы `s` и `ms` разрешены только в `render`.
@@ -863,6 +918,8 @@ NodeOp (этапы 3–5)
   Phasor(NodeId)
   Saw(NodeId)
   Square(NodeId)
+  SawPolyblep(NodeId)       # подэтап 5D
+  SquarePolyblep(NodeId)    # подэтап 5D
   Triangle(NodeId)
   Stereo(NodeId, NodeId)
   Pan(NodeId, NodeId)
@@ -891,7 +948,7 @@ NodeOp (этапы 3–5)
 
 Каждый добавленный IR op имеет центральный descriptor с runtime capability и resource model. Существующие capabilities — `CoreAudio` и, начиная с этапа 5, `Multichannel` для `Stereo`/`Pan`; пустое перечисление будущих возможностей не создаётся. `ResourceModel` указывает scalar registers, audio registers, state slots и state bytes на node. Const/scalar ops требуют один scalar register; lift/signal ops — один audio register; каждый phase oscillator дополнительно требует один state slot и одну `f64` phase. `Stereo`/`Pan` требуют два audio registers без state; `Noise` — один audio register, один state slot и initial/current `u64`. Arithmetic sugar получает resources фактически lowered nodes. Metadata согласованы с builtin descriptors; buffer bytes дополнительно зависят от maximum block size.
 
-`verify(graph, sources)` возвращает структурированную ошибку и проверяет IDs, input references/order, типы, finite constants, roots/output и channel type, reachability, seed/stream consistency и разрешимость origins в исходной `SourceMap`, включая offsets и UTF-8 boundaries. Нарушение — internal compiler invariant с typed compile error и CLI exit `3`, а не source diagnostic, молчаливый fallback или panic на пользовательской программе. Подробная архитектура — ADR 0004, 0013–0015.
+`verify(graph, sources)` возвращает структурированную ошибку и проверяет IDs, input references/order, типы, finite constants, roots/output и channel type, reachability, seed/stream consistency и разрешимость origins в исходной `SourceMap`, включая offsets и UTF-8 boundaries. Нарушение — internal compiler invariant с typed compile error и CLI exit `3`, а не source diagnostic, молчаливый fallback или panic на пользовательской программе. Подробная архитектура — ADR 0004, 0013–0016.
 
 ### 5.7. Bytecode и VM
 
@@ -921,6 +978,8 @@ Sine          dst_audio, freq_operand, state
 Phasor        dst_audio, freq_operand, state
 Saw           dst_audio, freq_operand, state
 Square        dst_audio, freq_operand, state
+SawPolyblep   dst_audio, freq_operand, state    # подэтап 5D
+SquarePolyblep dst_audio, freq_operand, state   # подэтап 5D
 Triangle      dst_audio, freq_operand, state
 MakeStereo    dst_left, dst_right, src_left, src_right
 Pan           dst_left, dst_right, input_operand, position_operand
@@ -1030,6 +1089,7 @@ render(program, config, Write)
 13. `0013-naive-phase-oscillators.md` — этап 5.
 14. `0014-stereo-output-and-interleaving.md` — этап 5.
 15. `0015-deterministic-noise-splitmix64.md` — этап 5.
+16. `0016-explicit-polyblep-oscillators.md` — подэтап 5D.
 
 ### 5.11. Детерминированная компиляция и случайность
 
@@ -1406,7 +1466,12 @@ n = 100 →  0
 - `1ms` при 48 кГц даёт `48` семплов;
 - повторный рендер после reset повторяет результат;
 - NaN/Inf на выходе и в frequency диагностируются с правильными primary span и structured sample index, без изменения phase на ошибочном семпле;
-- независимый reference проходит аналитические vectors и не вызывает production DSP/interpreter.
+- независимый reference проходит аналитические vectors и не вызывает production DSP/interpreter;
+- 5D: `saw_polyblep`/`square_polyblep` проверяются посемплово вне и внутри обеих зон коррекции, на wrap и half-cycle discontinuity, при строгих границах `t=dt`, `t=1-dt`, `t=0.5`, а также при `dt=0`, `dt=0.5` и `dt>0.5`;
+- 5D: отрицательная frequency, signed phase update, initial samples, nonfinite error без phase update, block partitions, reset, long render, sharing/fresh state и debug stripping покрываются отдельно от naive tests;
+- 5D: independent reference реализует формулы §4.8.4 отдельно от production DSP и сам проходит fixed analytic vectors.
+
+Spectral acceptance 5D дополняет посемпловые tests. При sample rate 48 000 Hz, frequency 1001 Hz и 48 000 frames direct DFT сравнивает naive и PolyBLEP magnitudes на bins `[48, 96, 144, 857, 905, 953, 1049, 1097, 1145, 1858, 1906, 1954]`. Для каждой формы saw/square сумма квадратов magnitudes у PolyBLEP обязана быть не менее чем на 20 dB ниже naive. Нулевая alias energy, RMS-only comparison или изменение этого набора без обоснования не засчитываются как успешная проверка.
 
 #### WAV
 
@@ -1983,6 +2048,36 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 - наивный и anti-aliased вариант не выдаются за один и тот же алгоритм; AA не входит в текущий production diff;
 - все временные заглушки удалены, общий набор и real CLI mono/stereo/noise scenarios проходят, полный stage DoD выполнен.
 
+#### Подэтап 5D — Явный 2-point PolyBLEP
+
+**Статус:** спецификация 0.7.0 и ADR 0016 приняты, подготовительная SDD/test-facing задача завершена 2026-11-22. Production `saw_polyblep`/`square_polyblep` реализованы, все три заглушки удалены, полный DoD выполнен 2026-11-24. Исторический DoD базового этапа 5 выше относится только к 5A–5C.
+
+**Production:**
+
+- добавить `saw_polyblep(freq)` и `square_polyblep(freq)` по точным формулам §4.8.4, не меняя naive nodes;
+- добавить отдельные descriptors, IR/bytecode ops и VM states с одной `f64` phase, `CoreAudio`, origins и существующей `E4001`;
+- сохранить explicit branch `dt == 0 || dt > 0.5` без коррекции и PolyBLEP на `dt == 0.5`;
+- расширить independent reference, fixed-seed generation, analytic/spectral/reset/partition/verifier/allocation coverage;
+- после полного parity удалить три разрешённые подготовительные заглушки и выполнить real CLI/atomic/determinism scenarios.
+
+**Агенту можно по подготовительной задаче:**
+
+- зафиксировать SPEC/ADR/stage/task и compatibility break для одноимённых function declarations;
+- механически добавить descriptors, representations, codegen/verifier/VM plumbing и только три явные заглушки: `lower_stage5d_builtin`, `SawPolyblep::next_sample`, `SquarePolyblep::next_sample`;
+- подготовить independent formulas/reference, analytic vectors, direct-DFT acceptance и generated tests.
+
+**DoD 5D:**
+
+- оба новых builtins работают через source → WAV и посемплово соответствуют §4.8.4 на всех correction/frequency branches;
+- naive samples и все прежние fixtures/WAV/diagnostics не изменены;
+- block sizes `1/3/64/128/256`, variable partitions, reset, long render, sharing/fresh state, origins, verifiers и debug stripping проходят;
+- fixed spectral acceptance даёт не менее 20 dB alias-energy reduction для каждой формы, не заменяя analytic vectors;
+- generated differential/properties и allocation harness покрывают новые ops; steady-state allocations остаются нулевыми;
+- все три заглушки удалены, нет ignored tests/dependencies/future-stage infrastructure;
+- общий набор и real CLI check/run/atomic/repeated-process scenarios проходят, документация обновлена по факту.
+
+Подробный контракт и разделение работ: `docs/development/stages/stage-05d-polyblep-anti-aliasing.md`. Другие AA algorithms, stdlib/modules и этап 6 в этот diff не входят.
+
 ### Этап 6 — Фильтры, delay и feedback
 
 **Цель:** состояние сложнее фазы и безопасные циклы.
@@ -2294,12 +2389,24 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 3. Этап 2 завершён 2026-11-20 по спецификации 0.3.0: resolver/type checker, Typed AST/lifts, наивный `sine` interpreter, streaming WAV и CLI реализованы; 121 integration test, общий набор и ручная Beep/atomic/determinism приёмка проходят. Исторический отчёт подготовки и финальная приёмка находятся в `docs/development/stages/stage-02-types-interpreter-wav.md`.
 4. Этап 3 завершён 2026-11-21 по ADR 0004/0005, включая benchmark baseline с полной конфигурацией §10.2 в stage document. Persistence не создаётся; если появится отдельной задачей, format/VM version обязательны.
 5. Этап 4 завершён 2026-11-21 по спецификации 0.5.0 и ADR 0007: parser/sema/lowering реализованы, все временные заглушки удалены, 208 integration tests и полный DoD проходят.
-6. Этап 5 завершён 2026-11-22 по спецификации 0.6.0 и ADR 0013–0015: test-facing каркас, реализация 5A/5B/5C, review-исправления, 239 integration tests, allocation harness, общий набор и реальные CLI/atomic сценарии проходят. PolyBLEP/AA и этап 6 не начинались.
-7. Reference, block partitions, reset, origins, verifiers, determinism и differential generation уже проверены для прежнего языка и расширяются новыми узлами на этапе 5. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
-8. Модули, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
-9. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
+6. Этап 5 завершён 2026-11-22 по спецификации 0.6.0 и ADR 0013–0015: test-facing каркас, реализация 5A/5B/5C, review-исправления, 239 integration tests, allocation harness, общий набор и реальные CLI/atomic сценарии проходят. На момент той приёмки PolyBLEP/AA и этап 6 не начинались.
+7. Подэтап 5D специфицирован в 0.7.0 и ADR 0016; подготовительная задача завершена 2026-11-22, production lowering/DSP и полный DoD — 2026-11-24. Все три заглушки удалены; 254 integration + 2 allocation tests и реальные CLI-сценарии проходят. Контракт, исторический отчёт и фактическая приёмка: `docs/development/stages/stage-05d-polyblep-anti-aliasing.md`.
+8. Reference, block partitions, reset, origins, verifiers, determinism и differential generation проверены для прежнего языка и расширены новыми узлами в 5D. Allocation-counting harness реализован через отдельно разрешённый test-only `GlobalAlloc`; production library/binary сохраняют `forbid(unsafe_code)`.
+9. Модули, явно импортируемая stdlib, локальные packages, lockfile, instruments/presets, registry и device distribution выполнять только по отдельным этапам дорожной карты после их prerequisites; registry не начинать до воспроизводимых offline builds.
+10. Не обсуждать детальную реализацию real-time, GUI или JIT, пока базовая функциональная версия не стабильна.
 
 ## Changelog спецификации
+
+### 0.7.0 — 2026-11-22
+
+- Изменение: начат корректирующий подэтап 5D; добавлены отдельные `saw_polyblep`/`square_polyblep`, точный 2-point PolyBLEP transition, explicit zero/above-Nyquist naive branches, independent numeric/spectral acceptance и граница между низкоуровневыми builtins и будущей stdlib. Добавлены ADR 0016 и stage/task documents.
+- Причина: уменьшить aliasing без скрытой замены naive waveforms, преждевременного algorithm selector или разрастания ядра композициями будущей стандартной библиотеки.
+- Затронутые контракты: §0, §4.8.4, §5.5–§5.7, §5.10, §7.3–§7.5, §9 (5D), §13–§14; нестабильные Rust BuiltinId/IR/bytecode/VM/DSP representations расширяются двумя ops.
+- Совместимость: все существующие naive samples, Stereo/noise/WAV/CLI, diagnostic codes и frame indices сохраняются. Сознательный break: пользовательские function declarations `saw_polyblep`/`square_polyblep` теперь отклоняются `E2000` как замена builtin; value bindings остаются разрешёнными. Новых diagnostic codes нет. Modules/imports/stdlib и другие AA algorithms не реализуются. Подготовительные заглушки и ожидаемые красные tests не являются завершением 5D.
+- Новые/изменённые тесты: fixed PolyBLEP vectors, correction/frequency boundaries, nonfinite diagnostics, reference/differential/properties, partitions/reset/state/origins/verifier corruption, direct-DFT alias reduction, allocation/compatibility.
+- Подготовительная приёмка 2026-11-22: добавлены 15 tests и три fixtures; ровно три разрешённые заглушки, `unimplemented!()` и ignored tests отсутствуют. Все 239 прежних integration tests и прежний allocation scenario проходят. Aggregate — 253 integration + 2 allocation tests: 244 passed, 11 ожидаемых failed только на заглушках, 0 ignored. Compile/static/doctest/rustdoc/diff checks успешны. Production lowering/DSP, real CLI и полный DoD 5D не выполнены; подэтап не завершён.
+- Production-приёмка 2026-11-24: lowering и оба DSP transition реализованы по ADR 0016, все три заглушки удалены. Добавлен shifted-phase rounding regression; финальный corpus — 254 integration + 2 allocation tests, 256 passed, 0 failed, 0 ignored. Общий набор, spectral/generated/allocation checks и реальные CLI check/run/WAV/atomic/repeated-process сценарии проходят. Полный DoD выполнен, подэтап 5D завершён; этап 6 не начинался.
+- Связанный ADR: `0016`; сохраняются `0001`–`0007`, `0009`, `0011`–`0015`.
 
 ### 0.6.0 — 2026-11-21
 

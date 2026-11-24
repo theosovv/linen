@@ -6,6 +6,12 @@
 
 ### Added
 
+- Production-реализация 5D: `saw_polyblep`/`square_polyblep` работают через lowering, IR, bytecode, VM и WAV по точным формулам ADR 0016 без изменения naive-осцилляторов. Все три подготовительные заглушки удалены; добавлен regression для shifted-phase rounding. Финальный aggregate — 254 integration + 2 allocation tests, 256 passed, 0 failed, 0 ignored; общий набор и реальные CLI check/run/WAV/atomic/repeated-process сценарии проходят. Подэтап 5D завершён.
+
+- Подготовительный test-facing каркас 5D: два новых builtin/IR/bytecode/VM representations, descriptors, mechanical codegen/verifier/state plumbing, independent PolyBLEP reference/generator, 15 tests и три fixtures. Оставлены ровно три документированные заглушки для ручного lowering/DSP. Все 239 прежних integration tests и прежний allocation scenario проходят; aggregate — 253 integration + 2 allocation tests, 244 passed, 11 ожидаемых failed, 0 ignored. Это не production-завершение 5D.
+
+- Спецификация 0.7.0 и ADR 0016 для корректирующего подэтапа 5D: отдельные `saw_polyblep`/`square_polyblep`, точный 2-point PolyBLEP, явные zero/above-Nyquist branches, numeric/spectral acceptance и граница будущей stdlib. Production-алгоритм ещё не реализован; завершение будет записано отдельно после полного DoD.
+
 - Production-реализация этапа 5: naive `phasor`/`saw`/`square`/`triangle`, descriptor-driven `gain`/`mix`, `Stereo`/`stereo`/`pan`, interleaved VM/PCM16 и explicit-seed SplitMix64 `noise`. Все временные заглушки удалены; 239 integration tests и allocation harness проходят, полный набор и реальные CLI mono/stereo/noise/atomic-error сценарии проверены. Anti-aliasing остаётся отдельным подэтапом.
 
 - Спецификация 0.6.0 и ADR 0013/0014/0015 для этапа 5: точные naive phase waveforms, `gain`/linear `mix`, явный `Stereo`, equal-power `pan`, interleaved frame-based VM/WAV output и explicit-seed SplitMix64 `noise` со stable `RandomStreamId`. Добавлены `E2107`, stage/task documents и полный DoD. На момент этой спецификационной записи production-этап ещё не был завершён; финальная реализация и приёмка добавлены отдельной записью выше.
@@ -84,6 +90,8 @@
 - Этап 1A завершён по спецификации 0.2.1: SourceMap/SourceSpan, session/facade, source-aware diagnostics, CLI logical names, reserved words и determinism прошли узкие и общие проверки.
 
 ### Compatibility
+
+- Спецификация 0.7.0 добавляет сознательный contract break только для пользовательских function declarations с именами `saw_polyblep` и `square_polyblep`: они отклоняются `E2000` как builtin replacements. Value bindings с этими именами остаются допустимыми. Существующие naive samples, WAV, diagnostics и другие programs не меняются.
 
 - Сознательный contract break спецификации 0.6.0: пользовательские функции с именами любых builtin descriptors, включая новый `mix`, отклоняются `E2000`. Исторический stage-4 fixture `mix` переименован в `mix_signals` без изменения сигнатуры, IR semantics или audio expected; программы пользователей с таким function declaration требуют переименования.
 

@@ -139,6 +139,101 @@ impl Square {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct SawPolyblep {
+    phase: f64,
+}
+
+impl SawPolyblep {
+    pub const fn new() -> Self {
+        Self { phase: 0.0 }
+    }
+
+    pub const fn phase(&self) -> f64 {
+        self.phase
+    }
+
+    pub fn reset(&mut self) {
+        self.phase = 0.0;
+    }
+
+    pub fn next_sample(
+        &mut self,
+        frequency: f64,
+        sample_rate: u32,
+    ) -> Result<f32, NonFiniteFrequency> {
+        if !frequency.is_finite() {
+            return Err(NonFiniteFrequency);
+        }
+
+        let phase_step = frequency / sample_rate as f64;
+        let dt = phase_step.abs();
+        let t = self.phase;
+        let saw_naive = 2.0 * t - 1.0;
+        let sample = saw_naive - get_b(t, dt);
+
+        self.phase = (self.phase + phase_step).rem_euclid(1.0);
+
+        Ok(sample as f32)
+    }
+}
+
+fn get_b(t: f64, dt: f64) -> f64 {
+    if dt == 0.0 || dt > 0.5 {
+        0.0
+    } else if t < dt {
+        let x = t / dt;
+
+        2.0 * x - x * x - 1.0
+    } else if t > 1.0 - dt {
+        let x = (t - 1.0) / dt;
+
+        x * x + 2.0 * x + 1.0
+    } else {
+        0.0
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SquarePolyblep {
+    phase: f64,
+}
+
+impl SquarePolyblep {
+    pub const fn new() -> Self {
+        Self { phase: 0.0 }
+    }
+
+    pub const fn phase(&self) -> f64 {
+        self.phase
+    }
+
+    pub fn reset(&mut self) {
+        self.phase = 0.0;
+    }
+
+    pub fn next_sample(
+        &mut self,
+        frequency: f64,
+        sample_rate: u32,
+    ) -> Result<f32, NonFiniteFrequency> {
+        if !frequency.is_finite() {
+            return Err(NonFiniteFrequency);
+        }
+
+        let phase_step = frequency / sample_rate as f64;
+        let dt = phase_step.abs();
+        let t = self.phase;
+        let square_naive = if t < 0.5 { 1.0 } else { -1.0 };
+        let square_shifted = if t < 0.5 { t + 0.5 } else { t - 0.5 };
+        let sample = square_naive + get_b(t, dt) - get_b(square_shifted, dt);
+
+        self.phase = (self.phase + phase_step).rem_euclid(1.0);
+
+        Ok(sample as f32)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Triangle {
     phase: f64,
 }

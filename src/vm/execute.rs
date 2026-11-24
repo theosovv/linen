@@ -4,7 +4,7 @@ use crate::{
     bytecode::{
         self, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, OutputLayout, StateId,
     },
-    dsp::{self, Noise, Phasor, Saw, Sine, Square, Triangle},
+    dsp::{self, Noise, Phasor, Saw, SawPolyblep, Sine, Square, SquarePolyblep, Triangle},
 };
 
 use super::{VmConfig, VmConfigError, state::NodeState};
@@ -155,6 +155,12 @@ impl<'program> Vm<'program> {
                 Instruction::Square { state, .. } => {
                     states[state.index()] = Some(NodeState::Square(Square::new()));
                 }
+                Instruction::SawPolyblep { state, .. } => {
+                    states[state.index()] = Some(NodeState::SawPolyblep(SawPolyblep::new()));
+                }
+                Instruction::SquarePolyblep { state, .. } => {
+                    states[state.index()] = Some(NodeState::SquarePolyblep(SquarePolyblep::new()));
+                }
                 Instruction::Triangle { state, .. } => {
                     states[state.index()] = Some(NodeState::Triangle(Triangle::new()));
                 }
@@ -277,6 +283,8 @@ impl<'program> Vm<'program> {
                     | Instruction::Phasor { dst, freq, state }
                     | Instruction::Saw { dst, freq, state }
                     | Instruction::Square { dst, freq, state }
+                    | Instruction::SawPolyblep { dst, freq, state }
+                    | Instruction::SquarePolyblep { dst, freq, state }
                     | Instruction::Triangle { dst, freq, state } => {
                         let frequency = operand_at(
                             *freq,
@@ -300,6 +308,13 @@ impl<'program> Vm<'program> {
                             (Instruction::Square { .. }, NodeState::Square(state)) => {
                                 state.next_sample(f64::from(frequency), self.config.sample_rate)
                             }
+                            (Instruction::SawPolyblep { .. }, NodeState::SawPolyblep(state)) => {
+                                state.next_sample(f64::from(frequency), self.config.sample_rate)
+                            }
+                            (
+                                Instruction::SquarePolyblep { .. },
+                                NodeState::SquarePolyblep(state),
+                            ) => state.next_sample(f64::from(frequency), self.config.sample_rate),
                             (Instruction::Triangle { .. }, NodeState::Triangle(state)) => {
                                 state.next_sample(f64::from(frequency), self.config.sample_rate)
                             }

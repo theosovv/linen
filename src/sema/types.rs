@@ -50,6 +50,8 @@ impl BuiltinId {
     pub const STEREO: Self = Self(7);
     pub const PAN: Self = Self(8);
     pub const NOISE: Self = Self(9);
+    pub const SAW_POLYBLEP: Self = Self(10);
+    pub const SQUARE_POLYBLEP: Self = Self(11);
 
     pub const fn index(self) -> usize {
         self.0

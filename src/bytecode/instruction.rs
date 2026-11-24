@@ -130,6 +130,16 @@ pub enum Instruction {
         freq: Operand,
         state: StateId,
     },
+    SawPolyblep {
+        dst: AudioRegister,
+        freq: Operand,
+        state: StateId,
+    },
+    SquarePolyblep {
+        dst: AudioRegister,
+        freq: Operand,
+        state: StateId,
+    },
     Triangle {
         dst: AudioRegister,
         freq: Operand,

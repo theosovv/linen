@@ -79,7 +79,7 @@ fn assert_valid_span(span: SourceSpan, sources: &SourceMap) {
 
 #[test]
 fn spec_5_5_sine_has_a_complete_static_builtin_descriptor() {
-    assert_eq!(BUILTINS.len(), 10);
+    assert_eq!(BUILTINS.len(), 12);
     let descriptor = builtin_descriptor(BuiltinId::SINE).expect("sine must have a descriptor");
 
     assert_eq!(descriptor.id, BuiltinId::SINE);

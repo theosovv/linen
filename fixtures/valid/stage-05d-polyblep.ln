@@ -1,0 +1,8 @@
+let voice = (frequency: Sig): Sig => {
+  let saw = saw_polyblep(frequency);
+  let square = square_polyblep(frequency * 0.5);
+  mix(saw, square, 0.25)
+};
+let shared = voice(3000);
+let out = gain(shared + voice(1000), 0.1);
+render 2ms;

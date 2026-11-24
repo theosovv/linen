@@ -38,3 +38,4 @@ ADR фиксирует нетривиальное архитектурное р�
 - [0013 — наивные фазовые осцилляторы и arithmetic builtins](0013-naive-phase-oscillators.md).
 - [0014 — явный Stereo и interleaved двухканальный output](0014-stereo-output-and-interleaving.md).
 - [0015 — deterministic noise с explicit seed и SplitMix64](0015-deterministic-noise-splitmix64.md).
+- [0016 — явные PolyBLEP-осцилляторы и граница будущей stdlib](0016-explicit-polyblep-oscillators.md).

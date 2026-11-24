@@ -148,12 +148,16 @@ pub fn codegen(graph: &Graph, output_origin: NodeOrigin) -> Bytecode {
             | NodeOp::Phasor(_)
             | NodeOp::Saw(_)
             | NodeOp::Square(_)
+            | NodeOp::SawPolyblep(_)
+            | NodeOp::SquarePolyblep(_)
             | NodeOp::Triangle(_) => {
                 let frequency = match &node.op {
                     NodeOp::Sine(frequency)
                     | NodeOp::Phasor(frequency)
                     | NodeOp::Saw(frequency)
                     | NodeOp::Square(frequency)
+                    | NodeOp::SawPolyblep(frequency)
+                    | NodeOp::SquarePolyblep(frequency)
                     | NodeOp::Triangle(frequency) => *frequency,
                     _ => panic!("matched phase operation"),
                 };
@@ -165,6 +169,8 @@ pub fn codegen(graph: &Graph, output_origin: NodeOrigin) -> Bytecode {
                     NodeOp::Phasor(_) => Instruction::Phasor { dst, freq, state },
                     NodeOp::Saw(_) => Instruction::Saw { dst, freq, state },
                     NodeOp::Square(_) => Instruction::Square { dst, freq, state },
+                    NodeOp::SawPolyblep(_) => Instruction::SawPolyblep { dst, freq, state },
+                    NodeOp::SquarePolyblep(_) => Instruction::SquarePolyblep { dst, freq, state },
                     NodeOp::Triangle(_) => Instruction::Triangle { dst, freq, state },
                     _ => panic!("matched phase operation"),
                 };

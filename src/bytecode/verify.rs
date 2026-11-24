@@ -271,6 +271,8 @@ pub fn verify(bytecode: &Bytecode) -> Result<(), BytecodeVerifyError> {
             | Instruction::Phasor { dst, freq, state }
             | Instruction::Saw { dst, freq, state }
             | Instruction::Square { dst, freq, state }
+            | Instruction::SawPolyblep { dst, freq, state }
+            | Instruction::SquarePolyblep { dst, freq, state }
             | Instruction::Triangle { dst, freq, state } => {
                 check_audio_dst(bytecode, instruction_index, *dst)?;
                 check_operand(

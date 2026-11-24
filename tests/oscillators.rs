@@ -37,7 +37,7 @@ fn analytic_waveforms(builtin_id: BuiltinId) -> [f32; 8] {
 
 #[test]
 fn spec_5_5_stage_5_builtins_have_unique_complete_descriptors() {
-    assert_eq!(BUILTINS.len(), 10);
+    assert_eq!(BUILTINS.len(), 12);
     let mut names = BTreeSet::new();
     for (index, descriptor) in BUILTINS.iter().enumerate() {
         assert_eq!(descriptor.id.index(), index);
@@ -52,6 +52,8 @@ fn spec_5_5_stage_5_builtins_have_unique_complete_descriptors() {
         BuiltinId::SAW,
         BuiltinId::SQUARE,
         BuiltinId::TRIANGLE,
+        BuiltinId::SAW_POLYBLEP,
+        BuiltinId::SQUARE_POLYBLEP,
     ] {
         let descriptor = builtin_descriptor(id).unwrap();
         assert_eq!(descriptor.signature.parameters, &[Type::Sig]);

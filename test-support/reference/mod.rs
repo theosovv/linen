@@ -55,6 +55,8 @@ enum ReferenceOscillator {
     Phasor,
     Saw,
     Square,
+    SawPolyblep,
+    SquarePolyblep,
     Triangle,
 }
 
@@ -278,7 +280,12 @@ fn lower_expr(
                     state: builder.phase(),
                 }
             }
-            BuiltinId::PHASOR | BuiltinId::SAW | BuiltinId::SQUARE | BuiltinId::TRIANGLE => {
+            BuiltinId::PHASOR
+            | BuiltinId::SAW
+            | BuiltinId::SQUARE
+            | BuiltinId::SAW_POLYBLEP
+            | BuiltinId::SQUARE_POLYBLEP
+            | BuiltinId::TRIANGLE => {
                 assert_eq!(
                     arguments.len(),
                     1,
@@ -288,6 +295,8 @@ fn lower_expr(
                     BuiltinId::PHASOR => ReferenceOscillator::Phasor,
                     BuiltinId::SAW => ReferenceOscillator::Saw,
                     BuiltinId::SQUARE => ReferenceOscillator::Square,
+                    BuiltinId::SAW_POLYBLEP => ReferenceOscillator::SawPolyblep,
+                    BuiltinId::SQUARE_POLYBLEP => ReferenceOscillator::SquarePolyblep,
                     BuiltinId::TRIANGLE => ReferenceOscillator::Triangle,
                     _ => panic!("matched oscillator builtin"),
                 };
@@ -429,12 +438,26 @@ fn eval(
                 sample_index,
                 sample_rate,
             )?);
+            let phase_step = f64::from(frequency) / f64::from(sample_rate);
             let phase = advance_phase(phases, *state, frequency, sample_rate, sample_index)?;
             let sample = match oscillator {
                 ReferenceOscillator::Phasor => phase,
                 ReferenceOscillator::Saw => 2.0 * phase - 1.0,
                 ReferenceOscillator::Square if phase < 0.5 => 1.0,
                 ReferenceOscillator::Square => -1.0,
+                ReferenceOscillator::SawPolyblep => {
+                    2.0 * phase - 1.0 - reference_poly_blep(phase, phase_step.abs())
+                }
+                ReferenceOscillator::SquarePolyblep => {
+                    let naive = if phase < 0.5 { 1.0 } else { -1.0 };
+                    let shifted = if phase < 0.5 {
+                        phase + 0.5
+                    } else {
+                        phase - 0.5
+                    };
+                    naive + reference_poly_blep(phase, phase_step.abs())
+                        - reference_poly_blep(shifted, phase_step.abs())
+                }
                 ReferenceOscillator::Triangle if phase < 0.5 => 4.0 * phase - 1.0,
                 ReferenceOscillator::Triangle => 3.0 - 4.0 * phase,
             };
@@ -626,6 +649,21 @@ fn eval(
             Ok(ReferenceValue::Signal(value as f32))
         }
     }
+}
+
+fn reference_poly_blep(phase: f64, dt: f64) -> f64 {
+    if dt == 0.0 || dt > 0.5 {
+        return 0.0;
+    }
+    if phase < dt {
+        let x = phase / dt;
+        return 2.0 * x - x * x - 1.0;
+    }
+    if phase > 1.0 - dt {
+        let x = (phase - 1.0) / dt;
+        return x * x + 2.0 * x + 1.0;
+    }
+    0.0
 }
 
 fn advance_phase(

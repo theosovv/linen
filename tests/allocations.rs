@@ -1,6 +1,7 @@
 #![allow(unsafe_code)]
 
 use std::alloc::{GlobalAlloc, Layout};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use linen::{RenderConfig, compile, create_vm};
@@ -8,6 +9,7 @@ use linen::{RenderConfig, compile, create_vm};
 struct CountingAllocator;
 
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
@@ -35,6 +37,9 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
 #[test]
 fn spec_10_1_render_into_and_reset_have_zero_allocations_after_initialization() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     for source in [
         include_str!("../fixtures/valid/stage-03-block-partitions.ln"),
         include_str!("../fixtures/valid/stage-04-blocks-pipeline.ln"),
@@ -123,4 +128,34 @@ fn assert_stage5_stereo_render_and_reset_have_zero_allocations() {
     vm.reset();
     let after = ALLOCATIONS.load(Ordering::Relaxed);
     assert_eq!(after, before, "stereo steady-state must not allocate");
+}
+
+#[test]
+fn spec_10_1_polyblep_render_and_reset_have_zero_steady_state_allocations() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let source = include_str!("../fixtures/valid/stage-05d-polyblep.ln");
+    let program = compile(source, RenderConfig::default())
+        .expect("the default config is valid")
+        .result
+        .expect("the PolyBLEP allocation fixture must compile");
+    let mut vm = create_vm(&program).expect("compiled PolyBLEP bytecode must create a VM");
+    let mut block = vec![0.0; program.config.block_size];
+
+    vm.render_into(&mut block)
+        .expect("the initialization warm-up must succeed");
+
+    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    for frames in [1, 7, 2, 128, 3, 0] {
+        vm.render_into(&mut block[..frames])
+            .expect("PolyBLEP steady-state rendering must succeed");
+    }
+    vm.reset();
+    let after = ALLOCATIONS.load(Ordering::Relaxed);
+
+    assert_eq!(
+        after, before,
+        "PolyBLEP render_into and reset must not allocate heap memory"
+    );
 }

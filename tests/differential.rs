@@ -186,3 +186,11 @@ fn spec_7_5_generated_function_block_pipeline_corpus_matches_reference() {
         compare_at_block_size(&source, 1 + seed as usize % 17);
     }
 }
+
+#[test]
+fn spec_7_5_generated_polyblep_corpus_matches_independent_reference() {
+    for seed in 0..16 {
+        let source = generator::stage5d_polyblep_program(seed);
+        compare_at_block_size(&source, 1 + seed as usize % 17);
+    }
+}
