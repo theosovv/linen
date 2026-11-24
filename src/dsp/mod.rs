@@ -1,3 +1,8 @@
+mod noise;
 mod oscillator;
 
-pub use oscillator::{NonFiniteFrequency, Sine};
+pub use noise::Noise;
+pub use oscillator::{
+    NonFiniteFrequency, NonFinitePosition, Phasor, Saw, SawPolyblep, Sine, Square, SquarePolyblep,
+    Triangle, pan,
+};

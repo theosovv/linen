@@ -1,6 +1,6 @@
 use linen::bytecode::{
-    AudioRegister, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, ScalarRegister,
-    StateId,
+    AudioRegister, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, OutputLayout,
+    ScalarRegister, StateId,
 };
 use linen::vm::{Vm, VmConfig, VmConfigError, VmCreateError, VmRuntimeError};
 use linen::{RenderConfig, compile, create_vm};
@@ -17,7 +17,7 @@ fn bytecode(
         scalar_register_count,
         audio_register_count,
         state_count,
-        output: AudioRegister::new(output),
+        output: OutputLayout::Mono(AudioRegister::new(output)),
         debug_origins: None,
     }
 }

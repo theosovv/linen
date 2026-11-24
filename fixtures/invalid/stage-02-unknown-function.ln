@@ -1,2 +1,2 @@
-let out = noise(1);
+let out = noize(1);
 render 1s;

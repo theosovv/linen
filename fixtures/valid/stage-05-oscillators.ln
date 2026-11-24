@@ -1,0 +1,7 @@
+let carrier = saw(220);
+let shape = triangle(110);
+let modulation = phasor(2);
+let pulse = square(0);
+let mixed = mix(carrier, shape, 0.25);
+let out = gain(mixed + modulation + pulse, 0.1);
+render 1ms;

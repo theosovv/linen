@@ -1,0 +1,4 @@
+let mix = (a: Sig, b: Sig, balance: Sig): Sig =>
+  a * (1 - balance) + b * balance;
+let out = 1;
+render 1ms;

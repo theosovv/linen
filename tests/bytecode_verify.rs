@@ -1,6 +1,6 @@
 use linen::bytecode::{
-    AudioRegister, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, ScalarRegister,
-    StateId, codegen, verify, verify_origins,
+    AudioRegister, BinaryOp, Bytecode, BytecodeVerifyError, Instruction, Operand, OutputLayout,
+    ScalarRegister, StateId, codegen, verify, verify_origins,
 };
 use linen::ir::NodeOrigin;
 use linen::{RenderConfig, SourceMap, SourceSpan, compile};
@@ -47,7 +47,7 @@ fn constant_program(span: SourceSpan) -> Bytecode {
         scalar_register_count: 1,
         audio_register_count: 2,
         state_count: 0,
-        output: AudioRegister::new(1),
+        output: OutputLayout::Mono(AudioRegister::new(1)),
         debug_origins: Some(vec![origin(span), origin(span), origin(span)]),
     }
 }
@@ -75,7 +75,7 @@ fn sine_program(span: SourceSpan) -> Bytecode {
         scalar_register_count: 1,
         audio_register_count: 3,
         state_count: 1,
-        output: AudioRegister::new(2),
+        output: OutputLayout::Mono(AudioRegister::new(2)),
         debug_origins: Some(vec![origin(span); 4]),
     }
 }
@@ -128,7 +128,7 @@ fn adr_0005_codegen_has_explicit_register_state_output_and_origin_layout() {
     assert_eq!(bytecode.scalar_register_count, 2);
     assert_eq!(bytecode.audio_register_count, 5);
     assert_eq!(bytecode.state_count, 1);
-    assert_eq!(bytecode.output, AudioRegister::new(4));
+    assert_eq!(bytecode.output, OutputLayout::Mono(AudioRegister::new(4)));
     assert_eq!(bytecode.debug_origins.as_ref().map(Vec::len), Some(7));
     verify(bytecode).expect("codegen must produce structurally valid bytecode");
     verify_origins(bytecode, &outcome.sources).expect("codegen origins must be valid");
@@ -235,7 +235,7 @@ fn spec_5_7_verifier_rejects_uninitialized_inputs() {
         scalar_register_count: 0,
         audio_register_count: 2,
         state_count: 0,
-        output: AudioRegister::new(1),
+        output: OutputLayout::Mono(AudioRegister::new(1)),
         debug_origins: None,
     };
     assert_eq!(
@@ -325,7 +325,7 @@ fn spec_5_7_verifier_enforces_the_dedicated_output_protocol() {
     );
 
     let mut out_of_range = constant_program(span);
-    out_of_range.output = AudioRegister::new(2);
+    out_of_range.output = OutputLayout::Mono(AudioRegister::new(2));
     assert_eq!(
         verify(&out_of_range),
         Err(BytecodeVerifyError::OutputOutOfRange(AudioRegister::new(2)))

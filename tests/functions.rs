@@ -151,7 +151,7 @@ fn spec_4_5_parser_preserves_function_declarations_and_signature_spans() {
     let linen::syntax::TopDecl::Function(function) = &program.declarations[0] else {
         panic!("the first declaration must be a function")
     };
-    assert_eq!(function.name.name, "mix");
+    assert_eq!(function.name.name, "mix_signals");
     assert_eq!(function.parameters.len(), 3);
     assert_eq!(function.result.kind, TypeName::Sig);
     assert_eq!(
@@ -251,7 +251,7 @@ fn spec_5_5_typed_ast_resolves_function_ids_parameters_and_pipeline_args() {
     assert_eq!(function.parameters.len(), 3);
     assert_eq!(
         outcome.symbols.get_function(function.id).unwrap().name,
-        "mix"
+        "mix_signals"
     );
     let output = program.typed.bindings().pop().unwrap();
     let TypedExprKind::FunctionCall {
@@ -632,8 +632,10 @@ fn spec_7_4_and_7_5_mix_matches_reference_at_every_required_block_size() {
 #[test]
 fn spec_4_5_pipeline_and_explicit_call_have_identical_ir_ops_and_samples() {
     let pipeline_source = include_str!("../fixtures/valid/stage-04-mix.ln");
-    let explicit_source =
-        pipeline_source.replace("left |> mix(right, 0.25)", "mix(left, right, 0.25)");
+    let explicit_source = pipeline_source.replace(
+        "left |> mix_signals(right, 0.25)",
+        "mix_signals(left, right, 0.25)",
+    );
     let pipeline = compile_program(pipeline_source);
     let explicit = compile_program(&explicit_source);
     let pipeline_ops: Vec<_> = pipeline

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub fn program(seed: u64) -> String {
     let mut rng = FixedRng::new(seed);
     let constant = float_expr(&mut rng, 2);
@@ -73,5 +75,53 @@ pub fn function_program(seed: u64) -> String {
 
     format!(
         "let base = {base};\nlet helper = (x: Sig, gain: Sig): Sig => {{\n  let captured = sine(base);\n  let mixed = x * gain + captured * 0.25;\n  {{\n    let local = mixed * 0.5;\n    local\n  }}\n}};\nlet initial_gain = {gain};\nlet first = helper(sine(base), initial_gain);\nlet out = first + {value};\nrender 1ms;\n"
+    )
+}
+
+pub fn stage5_mono_program(seed: u64) -> String {
+    let mut rng = FixedRng::new(seed);
+    let frequency = 80 + rng.below(9) * 20;
+    let balance = rng.below(5);
+    let waveform = match rng.below(4) {
+        0 => format!("phasor({frequency})"),
+        1 => format!("saw({frequency})"),
+        2 => format!("square({frequency})"),
+        _ => format!("triangle({frequency})"),
+    };
+    let second = match rng.below(3) {
+        0 => format!("saw({frequency})"),
+        1 => format!("triangle({frequency})"),
+        _ => format!("phasor({frequency})"),
+    };
+
+    format!(
+        "let mixed = mix({waveform}, {second}, 0.{balance});\nlet out = gain(mixed, 0.1);\nrender 1ms;\n"
+    )
+}
+
+pub fn stage5_stereo_program(seed: u64) -> String {
+    let mut rng = FixedRng::new(seed);
+    let frequency = 120 + rng.below(8) * 30;
+    let position = rng.below(5);
+    format!(
+        "let wave = mix(saw({frequency}), triangle({frequency}), 0.25);\nlet out = pan(gain(wave, 0.1), -0.{position});\nrender 1ms;\n"
+    )
+}
+
+pub fn stage5_noise_program(seed: u64) -> String {
+    format!(
+        "let left = noise({seed});\nlet right = noise({});\nlet out = stereo(gain(left, 0.1), gain(right, 0.1));\nrender 1ms;\n",
+        seed + 1
+    )
+}
+
+pub fn stage5d_polyblep_program(seed: u64) -> String {
+    let mut rng = FixedRng::new(seed);
+    let saw_frequency = 700 + rng.below(12) * 110;
+    let square_frequency = 500 + rng.below(10) * 130;
+    let balance = rng.below(5);
+
+    format!(
+        "let saw = saw_polyblep({saw_frequency});\nlet square = square_polyblep({square_frequency});\nlet out = gain(mix(saw, square, 0.{balance}), 0.1);\nrender 1ms;\n"
     )
 }

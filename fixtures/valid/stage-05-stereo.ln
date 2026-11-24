@@ -1,0 +1,4 @@
+let left = sine(480) * 0.1;
+let right = sine(240) * 0.2;
+let out: Stereo = stereo(left, right);
+render 1ms;

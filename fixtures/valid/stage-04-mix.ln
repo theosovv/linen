@@ -1,7 +1,7 @@
-let mix = (a: Sig, b: Sig, balance: Sig): Sig =>
+let mix_signals = (a: Sig, b: Sig, balance: Sig): Sig =>
   a * (1 - balance) + b * balance;
 
 let left = sine(480);
 let right = sine(240);
-let out = left |> mix(right, 0.25);
+let out = left |> mix_signals(right, 0.25);
 render 1ms;

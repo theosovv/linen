@@ -1,0 +1,3 @@
+let square_polyblep = (input: Sig): Sig => input;
+let out = 1;
+render 1ms;

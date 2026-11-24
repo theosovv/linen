@@ -94,6 +94,7 @@ pub struct TypeAnnotation {
 pub enum TypeName {
     Float,
     Sig,
+    Stereo,
 }
 
 #[derive(Clone, Debug, PartialEq)]

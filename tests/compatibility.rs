@@ -231,3 +231,21 @@ fn spec_5_8_renderer_returns_vm_creation_errors_before_writing() {
     ));
     assert!(output.is_empty());
 }
+
+#[test]
+fn spec_9_stage_5d_polyblep_fixture_preserves_verified_compiler_contracts() {
+    let outcome = compile(
+        include_str!("../fixtures/valid/stage-05d-polyblep.ln"),
+        RenderConfig::default(),
+    )
+    .expect("the default config is valid");
+    let program = outcome
+        .result
+        .as_ref()
+        .expect("the stage 5D fixture must compile");
+    verify(&program.ir, &outcome.sources).expect("stage 5D IR must verify");
+    linen::bytecode::verify(&program.bytecode).expect("stage 5D bytecode must verify");
+    linen::bytecode::verify_origins(&program.bytecode, &outcome.sources)
+        .expect("stage 5D origins must verify");
+    assert_eq!(program.bytecode.state_count, 4);
+}

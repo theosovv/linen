@@ -79,7 +79,7 @@ fn assert_valid_span(span: SourceSpan, sources: &SourceMap) {
 
 #[test]
 fn spec_5_5_sine_has_a_complete_static_builtin_descriptor() {
-    assert_eq!(BUILTINS.len(), 1);
+    assert_eq!(BUILTINS.len(), 12);
     let descriptor = builtin_descriptor(BuiltinId::SINE).expect("sine must have a descriptor");
 
     assert_eq!(descriptor.id, BuiltinId::SINE);
@@ -91,7 +91,7 @@ fn spec_5_5_sine_has_a_complete_static_builtin_descriptor() {
     assert_eq!(descriptor.statefulness, Statefulness::Stateful);
     assert_eq!(descriptor.documentation_name, "sine");
     assert!(std::ptr::eq(descriptor, builtin_by_name("sine").unwrap()));
-    assert!(builtin_by_name("noise").is_none());
+    assert!(builtin_by_name("noize").is_none());
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn spec_6_2_call_resolution_precedes_arity_and_argument_checking() {
         15,
     );
     assert_error(
-        "let out = noise(missing); render 1s;",
+        "let out = noize(missing); render 1s;",
         ErrorCode::UnknownFunction,
         10,
         15,
@@ -407,7 +407,7 @@ fn spec_6_2_semantic_messages_are_specific_and_do_not_repeat_the_primary_label()
     );
     assert_messages(
         &unknown_function,
-        "unknown function `noise`",
+        "unknown function `noize`",
         "this callee is not a builtin function",
     );
 
@@ -466,8 +466,8 @@ fn spec_6_2_semantic_messages_are_specific_and_do_not_repeat_the_primary_label()
     );
     assert_messages(
         &output_mismatch,
-        "`out` must have type `Sig`, not `Float`",
-        "remove this annotation or change it to `Sig`",
+        "`out` must have type `Sig` or `Stereo`, not `Float`",
+        "remove this annotation or change it to `Sig` or `Stereo`",
     );
 }
 
